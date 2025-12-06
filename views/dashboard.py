@@ -3,6 +3,8 @@ from datetime import datetime
 import time
 import threading
 
+from components.task_card import TaskCard
+
 def DashboardPage(page: ft.Page):
     """
     TYMATE Dashboard Page
@@ -48,25 +50,9 @@ def DashboardPage(page: ft.Page):
         spacing=5,
     )
     
-    # Create upcoming tasks list
-    task_items = []
-    for task in upcoming_tasks:
-        task_items.append(
-            ft.Container(
-                content=ft.Row(
-                    controls=[
-                        ft.Checkbox(value=False),
-                        ft.Text(task["title"], size=14, expand=True),
-                        ft.Text(task["due_date"], size=12, color=ft.Colors.RED_400),
-                    ],
-                ),
-                bgcolor=ft.Colors.WHITE,
-                border_radius=8,
-                padding=12,
-                margin=ft.margin.only(bottom=8),
-            )
-        )
-    
+    # Create upcoming tasks list using TaskCard
+    task_items = [TaskCard(task["title"], task["due_date"]) for task in upcoming_tasks]
+
     upcoming_tasks_section = ft.Container(
         content=ft.Column(
             controls=[

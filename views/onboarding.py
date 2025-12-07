@@ -20,12 +20,13 @@ def OnboardingPage(page: ft.Page, on_complete):
     # Store user's answers
     onboarding_data = {
         "sleep_hours": 8.0,
+        "wake_time": "07:00",  # Default 7:00 AM
         "has_work": False,
         "work_hours_per_week": 0.0,
         "work_days_per_week": 0,
     }
     
-    current_step = ft.Text("Step 1 of 4", size=12, color=ft.Colors.GREY_600)
+    current_step = ft.Text("Step 1 of 5", size=12, color=ft.Colors.GREY_600)
     
     # ==================== STEP 1: Sleep Hours ====================
     def build_step_1():
@@ -73,15 +74,78 @@ def OnboardingPage(page: ft.Page, on_complete):
             padding=40,
         )
     
-    # ==================== STEP 2: Work Status ====================
+    # ==================== STEP 2: Wake Time ====================
     def build_step_2():
+        wake_hour = ft.Text("7:00 AM", size=20, weight=ft.FontWeight.BOLD)
+        
+        def on_hour_change(e):
+            hour = int(e.control.value)
+            onboarding_data["wake_time"] = f"{hour:02d}:00"
+            
+            # Format for display
+            if hour == 0:
+                display = "12:00 AM"
+            elif hour < 12:
+                display = f"{hour}:00 AM"
+            elif hour == 12:
+                display = "12:00 PM"
+            else:
+                display = f"{hour-12}:00 PM"
+            
+            wake_hour.value = display
+            page.update()
+        
+        return ft.Container(
+            content=ft.Column(
+                controls=[
+                    ft.Text("What time do you usually wake up?", size=28, weight=ft.FontWeight.BOLD),
+                    ft.Container(height=10),
+                    ft.Text("This defines when your 'day' starts", size=14, color=ft.Colors.GREY_600),
+                    ft.Container(height=30),
+                    wake_hour,
+                    ft.Slider(
+                        min=0,
+                        max=23,
+                        value=7,
+                        divisions=23,
+                        label="{value}:00",
+                        on_change=on_hour_change,
+                        width=400,
+                    ),
+                    ft.Container(height=10),
+                    ft.Text("(Your time budget resets at this time each day)", size=12, color=ft.Colors.GREY_600),
+                    ft.Container(height=40),
+                    ft.Row(
+                        controls=[
+                            ft.TextButton("← Back", on_click=lambda e: show_step(1)),
+                            ft.Container(width=20),
+                            ft.ElevatedButton(
+                                "Next",
+                                on_click=lambda e: show_step(3),
+                                style=ft.ButtonStyle(
+                                    bgcolor=ft.Colors.BLUE_400,
+                                    color=ft.Colors.WHITE,
+                                ),
+                                width=200,
+                                height=50,
+                            ),
+                        ],
+                    ),
+                ],
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            padding=40,
+        )
+    
+    # ==================== STEP 3: Work Status ====================
+    def build_step_3():
         def select_yes(e):
             onboarding_data["has_work"] = True
-            show_step(3)
+            show_step(4)
         
         def select_no(e):
             onboarding_data["has_work"] = False
-            show_step(4)  # Skip step 3, go to summary
+            show_step(5)  # Skip step 4, go to summary
         
         return ft.Container(
             content=ft.Column(
@@ -133,15 +197,15 @@ def OnboardingPage(page: ft.Page, on_complete):
                         alignment=ft.MainAxisAlignment.CENTER,
                     ),
                     ft.Container(height=40),
-                    ft.TextButton("← Back", on_click=lambda e: show_step(1)),
+                    ft.TextButton("← Back", on_click=lambda e: show_step(2)),
                 ],
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             ),
             padding=40,
         )
     
-    # ==================== STEP 3: Work Details ====================
-    def build_step_3():
+    # ==================== STEP 4: Work Details ====================
+    def build_step_4():
         work_hours_field = ft.TextField(
             label="Hours per week",
             value="20",
@@ -159,7 +223,7 @@ def OnboardingPage(page: ft.Page, on_complete):
         def save_work_info(e):
             onboarding_data["work_hours_per_week"] = float(work_hours_field.value or 0)
             onboarding_data["work_days_per_week"] = int(work_days_field.value or 0)
-            show_step(4)
+            show_step(5)
         
         return ft.Container(
             content=ft.Column(
@@ -174,7 +238,7 @@ def OnboardingPage(page: ft.Page, on_complete):
                     ft.Container(height=40),
                     ft.Row(
                         controls=[
-                            ft.TextButton("← Back", on_click=lambda e: show_step(2)),
+                            ft.TextButton("← Back", on_click=lambda e: show_step(3)),
                             ft.Container(width=20),
                             ft.ElevatedButton(
                                 "Next",
@@ -194,8 +258,8 @@ def OnboardingPage(page: ft.Page, on_complete):
             padding=40,
         )
     
-    # ==================== STEP 4: Summary ====================
-    def build_step_4():
+    # ==================== STEP 5: Summary ====================
+    def build_step_5():
         # Calculate budget
         budget = manager.calculate_time_budget(
             sleep_hours=onboarding_data["sleep_hours"],
@@ -301,7 +365,7 @@ def OnboardingPage(page: ft.Page, on_complete):
                     
                     ft.Row(
                         controls=[
-                            ft.TextButton("← Back", on_click=lambda e: show_step(3 if onboarding_data["has_work"] else 2)),
+                            ft.TextButton("← Back", on_click=lambda e: show_step(4 if onboarding_data["has_work"] else 3)),
                             ft.Container(width=20),
                             ft.ElevatedButton(
                                 "Start Using TYMATE",
@@ -325,7 +389,7 @@ def OnboardingPage(page: ft.Page, on_complete):
     step_content = ft.Container()
     
     def show_step(step_num):
-        current_step.value = f"Step {step_num} of 4"
+        current_step.value = f"Step {step_num} of 5"
         
         if step_num == 1:
             step_content.content = build_step_1()
@@ -335,6 +399,8 @@ def OnboardingPage(page: ft.Page, on_complete):
             step_content.content = build_step_3()
         elif step_num == 4:
             step_content.content = build_step_4()
+        elif step_num == 5:
+            step_content.content = build_step_5()
         
         page.update()
     

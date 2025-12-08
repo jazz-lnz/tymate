@@ -6,6 +6,7 @@ from views.tasks import TasksPage
 from views.log_hours import LogHoursPage
 from views.settings import SettingsPage
 from views.onboarding import OnboardingPage
+from views.admin import AdminPage
 
 def main(page: ft.Page):
     """
@@ -39,7 +40,7 @@ def main(page: ft.Page):
         """Handle route changes"""
         
         # Special case: If user needs onboarding, redirect
-        if not session["onboarding_completed"] and page.route not in ("/onboarding", "/login", "/settings"):
+        if not session["onboarding_completed"] and page.route not in ("/onboarding", "/login", "/admin", "/settings"):
             page.route = "/onboarding"
             return route_change("/onboarding")
         
@@ -62,6 +63,8 @@ def main(page: ft.Page):
             main_content.content = LogHoursPage(page)
         elif page.route == "/settings":
             main_content.content = SettingsPage(page, session)
+        elif page.route == "/admin":
+            main_content.content = AdminPage(page, session)
         elif page.route == "/login":
             main_content.content = LoginPage(page, session)
         elif page.route == "/onboarding":

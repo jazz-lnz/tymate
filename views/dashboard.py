@@ -32,6 +32,7 @@ def DashboardPage(page: ft.Page):
     thread.start()
     
     # Sample upcoming tasks data
+    # TODO: Get real data from database
     upcoming_tasks = [
         {"title": "Wireframe", "due_date": "Nov. 17, 2025"},
         {"title": "App Dev - LT", "due_date": "Nov. 17, 2025"},
@@ -50,6 +51,10 @@ def DashboardPage(page: ft.Page):
         spacing=5,
     )
     
+    # Helper function to check if mobile
+    def is_mobile():
+        return page.window.width < 768
+    
     # Create upcoming tasks list using TaskCard
     task_items = [TaskCard(task["title"], task["due_date"]) for task in upcoming_tasks]
 
@@ -61,7 +66,7 @@ def DashboardPage(page: ft.Page):
                 ft.Column(
                     controls=task_items,
                     scroll=ft.ScrollMode.AUTO,
-                    height=280,
+                    height=350,
                 ),
             ],
         ),
@@ -72,6 +77,7 @@ def DashboardPage(page: ft.Page):
     )
     
     # Create simple bar chart for analytics
+    # TODO: Get real data from database
     bar_heights = [120, 40, 0, 0, 0, 0, 0]  # Monday has 3 hours, Tuesday 1 hour
     days = ["Mon", "Tues", "Wed", "Thu", "Fri", "Sat", "Sun"]
     
@@ -140,11 +146,12 @@ def DashboardPage(page: ft.Page):
                     text_align=ft.TextAlign.CENTER,
                 ),
             ],
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
         ),
         bgcolor=ft.Colors.GREY_100,
         border_radius=12,
         padding=20,
+        expand=True,
     )
     
     # Create summary cards (moved to bottom as third section)
@@ -158,7 +165,7 @@ def DashboardPage(page: ft.Page):
                         border_radius=10,
                         padding=20,
                         expand=True,
-                        height=60,
+                        height=80,
                         alignment=ft.alignment.center,
                     ),
                     ft.Container(
@@ -167,7 +174,7 @@ def DashboardPage(page: ft.Page):
                         border_radius=10,
                         padding=20,
                         expand=True,
-                        height=60,
+                        height=80,
                         alignment=ft.alignment.center,
                     ),
                     ft.Container(
@@ -176,7 +183,7 @@ def DashboardPage(page: ft.Page):
                         border_radius=10,
                         padding=20,
                         expand=True,
-                        height=60,
+                        height=80,
                         alignment=ft.alignment.center,
                     ),
                     ft.Container(
@@ -185,7 +192,7 @@ def DashboardPage(page: ft.Page):
                         border_radius=10,
                         padding=20,
                         expand=True,
-                        height=60,
+                        height=80,
                         alignment=ft.alignment.center,
                     ),
                 ],
@@ -194,47 +201,76 @@ def DashboardPage(page: ft.Page):
         ],
     )
     
-    # Build the complete dashboard layout with 3 sections
-    dashboard_content = ft.Column(
-        controls=[
-            # Top section with left and right columns
-            ft.Row(
+    # Build responsive layout based on screen size
+    def build_layout():
+        if is_mobile():
+            # Mobile layout: stack everything vertically
+            return ft.Column(
                 controls=[
-                    # Left column
-                    ft.Column(
-                        controls=[
-                            time_section,
-                            ft.Container(height=20),
-                            upcoming_tasks_section,
-                        ],
-                        expand=1,
-                    ),
-                    
-                    ft.Container(width=20),
-                    
-                    # Right column
-                    ft.Column(
-                        controls=[
-                            analytics_preview,
-                            ft.Container(height=20),
-                            time_budget_section,
-                        ],
-                        expand=1,
-                    ),
+                    time_section,
+                    ft.Container(height=20),
+                    time_budget_section,
+                    ft.Container(height=20),
+                    analytics_preview,
+                    ft.Container(height=20),
+                    upcoming_tasks_section,
+                    ft.Container(height=20),
+                    summary_cards,
                 ],
+                scroll=ft.ScrollMode.AUTO,
                 expand=True,
-                vertical_alignment=ft.CrossAxisAlignment.START,
-            ),
-            
-            # Bottom section with summary cards
-            ft.Container(height=20),
-            summary_cards,
-        ],
-        scroll=ft.ScrollMode.AUTO,
-    )
+            )
+        else:
+            # Desktop layout: two-column design
+            return ft.Column(
+                controls=[
+                    # Top section with left and right columns
+                    ft.Row(
+                        controls=[
+                            # Left column
+                            ft.Column(
+                                controls=[
+                                    time_section,
+                                    ft.Container(height=20),
+                                    upcoming_tasks_section,
+                                ],
+                                expand=1,
+                            ),
+                            
+                            ft.Container(width=20),
+                            
+                            # Right column
+                            ft.Column(
+                                controls=[
+                                    analytics_preview,
+                                    ft.Container(height=20),
+                                    time_budget_section,
+                                ],
+                                expand=1,
+                            ),
+                        ],
+                        expand=True,
+                        vertical_alignment=ft.CrossAxisAlignment.START,
+                    ),
+                    
+                    # Bottom section with summary cards
+                    ft.Container(height=20),
+                    summary_cards,
+                ],
+                scroll=ft.ScrollMode.AUTO,
+            )
     
-    return ft.Container(
-        content=dashboard_content,
+    dashboard_container = ft.Container(
+        content=build_layout(),
         padding=20,
         expand=True,
     )
+    
+    # Add window resize listener to rebuild layout
+    def on_window_resize(e=None):
+        dashboard_container.content = build_layout()
+        page.update()
+    
+    page.on_resized = on_window_resize
+    
+    return dashboard_container

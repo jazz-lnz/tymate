@@ -16,8 +16,11 @@ def main(page: ft.Page):
     page.title = "TYMATE - Time Management"
     page.theme_mode = ft.ThemeMode.LIGHT
     page.padding = 0
-    page.window.width = 1200
-    page.window.height = 800
+    page.window.width = 1150
+    page.window.height = 950
+    # page.window.resizable = False   # desktop app fixed size
+    page.window.center()
+    
     
     # Session state to store user data and app state
     session = {

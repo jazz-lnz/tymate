@@ -5,6 +5,7 @@ from views.login import LoginPage
 from views.tasks import TasksPage
 from views.log_hours import LogHoursPage
 from views.settings import SettingsPage
+from views.onboarding import OnboardingPage
 
 def main(page: ft.Page):
     """
@@ -26,7 +27,8 @@ def main(page: ft.Page):
     session = {
         "user": None,
         "is_online": False,
-        "theme": "light"
+        "theme": "light",
+        "onboarding_completed": False,  # Track if user completed onboarding
     }
 
     # Persistent container that holds the current page content
@@ -34,13 +36,23 @@ def main(page: ft.Page):
     
     # Navigation function to switch between pages
     def route_change(route: str):
-        # Build navbar once per route call, but persist it
-        navbar = create_navbar(page, page.route, session, route_change)
-
-        # Mount navbar + main content only once (no full clear-add cycle on every route)
+        """Handle route changes"""
+        
+        # Special case: If user needs onboarding, redirect
+        if not session["onboarding_completed"] and page.route not in ("/onboarding", "/login"):
+            page.route = "/onboarding"
+            route = "/onboarding"
+        
+        # Clear and rebuild
         page.controls.clear()
-        page.add(navbar, main_content)
-
+        
+        # Don't show navbar on login or onboarding pages
+        if page.route not in ("/login", "/onboarding"):
+            navbar = create_navbar(page, page.route, session, route_change)
+            page.add(navbar)
+        
+        page.add(main_content)
+        
         # Swap content inside main_content without removing navbar
         if page.route in ("/", "/dashboard"):
             main_content.content = DashboardPage(page)   # returns a Container
@@ -51,18 +63,32 @@ def main(page: ft.Page):
         elif page.route == "/settings":
             main_content.content = SettingsPage(page)
         elif page.route == "/login":
-            main_content.content = LoginPage(page)
+            main_content.content = LoginPage(page, session, route_change)
+        elif page.route == "/onboarding":
+            def on_onboarding_complete(data, budget):
+                """Called when onboarding is finished"""
+                # Save to session (in real app, save to database)
+                session["onboarding_completed"] = True
+                session["time_budget"] = budget
+                session["user_data"] = data
+                
+                # Redirect to dashboard
+                page.route = "/dashboard"
+                route_change("/dashboard")
+            
+            main_content.content = OnboardingPage(page, on_onboarding_complete)
         else:
             main_content.content = DashboardPage(page)
 
         page.update()
     
     # Set up route change handler
-    page.on_route_change = route_change
+    page.on_route_change = lambda e: route_change(page.route)
     
-    # Start with dashboard route
-    page.route = "/dashboard"
-    route_change("/dashboard")
+    # Start with onboarding route (for testing)
+    # In production, check if user is logged in and has completed onboarding
+    page.route = "/onboarding"
+    route_change("/onboarding")
 
 # Run the app
 if __name__ == "__main__":

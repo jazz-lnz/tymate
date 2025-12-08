@@ -49,22 +49,15 @@ class OnboardingManager:
         return bedtime_datetime.time()
     
     @staticmethod
-    def get_hours_until_bedtime(current_time: datetime, wake_time: time, sleep_hours: float) -> float:
-        """Calculate how many hours remain until bedtime"""
+    def get_hours_until_bedtime(current_time, wake_time, sleep_hours):
+        
         bedtime = OnboardingManager.calculate_bedtime(wake_time, sleep_hours)
         
         today = current_time.date()
-        
-        # Calculate bedtime datetime
-        if bedtime.hour < wake_time.hour or (bedtime.hour == wake_time.hour and bedtime.minute < wake_time.minute):
-            bed_dt = datetime.combine(today + timedelta(days=1), bedtime)
-        else:
-            bed_dt = datetime.combine(today, bedtime)
-        
-        time_until_bed = bed_dt - current_time
-        hours_remaining = time_until_bed.total_seconds() / 3600
-        
-        return hours_remaining
+        bed_today = datetime.combine(today, bedtime)
+
+        hours = (bed_today - current_time).total_seconds()/3600
+        return hours
     
     @staticmethod
     def get_hours_since_wake(current_time: datetime, wake_time: time) -> float:
@@ -360,10 +353,10 @@ class OnboardingManager:
         
         # Status messages
         if hours_until_bedtime <= 0:
-            time_status = "Past bedtime! Time to sleep. 😴"
+            time_status = "Past bedtime! Time to sleep."
             time_status_color = "red"
         elif hours_until_bedtime < 2:
-            time_status = f"Only {hours_until_bedtime:.1f} hours until bedtime! ⏰"
+            time_status = f"Only {hours_until_bedtime:.1f} hours until bedtime!"
             time_status_color = "orange"
         elif hours_until_bedtime < 4:
             time_status = f"{hours_until_bedtime:.1f} hours remaining today"
@@ -373,7 +366,7 @@ class OnboardingManager:
             time_status_color = "green"
         
         if study_remaining_realistic <= 0:
-            study_status = "Study goal completed! 🎉" if spent.get("Study", 0) >= study_goal else "No time left today"
+            study_status = "Study goal completed!" if spent.get("Study", 0) >= study_goal else "No time left today"
             study_status_color = "green" if spent.get("Study", 0) >= study_goal else "red"
         elif study_remaining_realistic < study_remaining_absolute:
             study_status = f"{study_remaining_realistic:.1f}h left (limited by bedtime)"

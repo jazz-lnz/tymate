@@ -8,6 +8,7 @@ Usage: python test_onboarding.py
 import flet as ft
 from views.onboarding import OnboardingPage
 from state.onboarding_manager import OnboardingManager
+from state.auth_manager import AuthManager
 from datetime import datetime
 
 def main(page: ft.Page):
@@ -19,6 +20,25 @@ def main(page: ft.Page):
     page.padding = 0
     
     manager = OnboardingManager()
+    auth = AuthManager()
+    
+    # Ensure a test user exists (register if missing, otherwise login)
+    success, msg, test_user = auth.register_user(
+        username="testuser",
+        password="password123",
+        email="test@example.com",
+        full_name="Test User"
+    )
+
+    token = None
+    if not success and "exists" in msg.lower():
+        login_ok, login_msg, test_user, token = auth.login("testuser", "password123")
+        success = login_ok
+        msg = login_msg
+    
+    # If for some reason user is still None, raise to surface the issue during the test run
+    if not success or not test_user:
+        raise RuntimeError(f"Cannot set up test user: {msg}")
     
     # Variables to capture last-computed status for printing
     last_time_status = {"time_status": None, "time_status_color": None,
@@ -62,43 +82,19 @@ def main(page: ft.Page):
         # --------------------------
         # REAL-TIME STATUS TESTING
         # --------------------------
-        # We'll compute real-time status using the manager helpers (same behavior as get_remaining_budget)
         current_time = datetime.now()
-        hours_until_bed = manager.get_hours_until_bedtime(current_time, wake_time_obj, data['sleep_hours'])
-        hours_since_wake = manager.get_hours_since_wake(current_time, wake_time_obj)
-        
-        # For testing we assume no study time logged yet (spent = 0). If you want to test with logs,
-        # insert records into the DB or call manager.get_time_spent_today(user_id) if a user exists.
-        spent_study = 0.0
-        spent_total = 0.0
-        
-        study_remaining_absolute = max(0, study_goal - spent_study)
-        study_remaining_realistic = min(study_remaining_absolute, max(0, hours_until_bed))
-        
-        # Time status messages (mirrors logic in OnboardingManager.get_remaining_budget)
-        if hours_until_bed <= 0:
-            time_status = "Past bedtime! Time to sleep."
-            time_status_color = "red"
-        elif hours_until_bed < 2:
-            time_status = f"Only {hours_until_bed:.1f} hours until bedtime!"
-            time_status_color = "orange"
-        elif hours_until_bed < 4:
-            time_status = f"{hours_until_bed:.1f} hours remaining today"
-            time_status_color = "yellow"
-        else:
-            time_status = f"{hours_until_bed:.1f} hours remaining today"
-            time_status_color = "green"
-        
-        # Study status messages
-        if study_remaining_realistic <= 0:
-            study_status = "Study goal completed!" if spent_study >= study_goal else "No time left today"
-            study_status_color = "green" if spent_study >= study_goal else "red"
-        elif study_remaining_realistic < study_remaining_absolute:
-            study_status = f"{study_remaining_realistic:.1f}h left (limited by bedtime)"
-            study_status_color = "orange"
-        else:
-            study_status = f"{study_remaining_realistic:.1f}h remaining for study goal"
-            study_status_color = "blue"
+        remaining = manager.get_remaining_budget(test_user.id, current_time)
+        if "error" in remaining:
+            raise RuntimeError(remaining["error"])
+        time_status = remaining["time_status"]
+        time_status_color = remaining["time_status_color"]
+        study_status = remaining["study_status"]
+        study_status_color = remaining["study_status_color"]
+        hours_since_wake = remaining["hours_since_wake"]
+        hours_until_bed = remaining["hours_until_bedtime"]
+        hours_until_wake = remaining.get("hours_until_wake", 0)
+        study_remaining_realistic = remaining["study_hours_remaining"]
+        spent_study = remaining["study_hours_spent"]
         
         # Save last status for print_summary closure
         last_time_status.update({
@@ -281,6 +277,13 @@ def main(page: ft.Page):
                                     ),
                                     ft.Row(
                                         controls=[
+                                            ft.Text("Hours until wake:", size=14, width=150),
+                                            ft.Text(f"{hours_until_wake:.1f} h", size=14, weight=ft.FontWeight.BOLD),
+                                        ],
+                                        visible=hours_until_wake > 0,
+                                    ),
+                                    ft.Row(
+                                        controls=[
                                             ft.Text("Hours until bedtime:", size=14, width=150),
                                             ft.Text(f"{hours_until_bed:.1f} h", size=14, weight=ft.FontWeight.BOLD),
                                         ],
@@ -413,6 +416,7 @@ def main(page: ft.Page):
             print(f"   Time status: {last_time_status['time_status']} (color {last_time_status['time_status_color']})")
             print(f"   Study status: {last_time_status['study_status']} (color {last_time_status['study_status_color']})")
             print(f"   Hours since wake: {last_time_status['hours_since_wake']} h")
+            print(f"   Hours until wake: {last_time_status.get('hours_until_wake', 0)} h")
             print(f"   Hours until bedtime: {last_time_status['hours_until_bed']} h")
             print(f"   Study remaining (realistic): {last_time_status['study_remaining_realistic']} h")
             print(f"   Study hours spent today (mocked): {last_time_status['study_hours_spent']} h")
@@ -424,7 +428,11 @@ def main(page: ft.Page):
     def show_onboarding():
         """Show onboarding wizard"""
         page.controls.clear()
-        page.add(OnboardingPage(page, on_onboarding_complete))
+        session = {
+            "user": test_user,
+            "user_id": test_user.id if test_user else None
+        }
+        page.add(OnboardingPage(page, on_onboarding_complete, session))
         page.update()
     
     # Start with onboarding

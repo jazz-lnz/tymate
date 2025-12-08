@@ -332,9 +332,46 @@ class OnboardingManager:
         wake_time = self.parse_wake_time(budget["wake_time"])
         sleep_hours = budget["sleep_hours"]
         
-        # Calculate time metrics
-        hours_until_bedtime = self.get_hours_until_bedtime(current_time, wake_time, sleep_hours)
-        hours_since_wake = self.get_hours_since_wake(current_time, wake_time)
+        # Calculate time metrics with pre-wake handling
+        today = current_time.date()
+        wake_dt_today = datetime.combine(today, wake_time)
+        
+        # For evening wake times (noon or later), reference yesterday's wake
+        if wake_time.hour >= 12:
+            # Evening wake time (e.g., 11 PM)
+            yesterday = today - timedelta(days=1)
+            wake_dt_reference = datetime.combine(yesterday, wake_time)
+            
+            # Check if we're still within the same "day" (after yesterday's evening wake)
+            if current_time >= wake_dt_reference:
+                is_before_wake = False
+                hours_since_wake = (current_time - wake_dt_reference).total_seconds() / 3600
+                hours_until_wake = 0.0
+                # Bedtime is sleep_hours after yesterday's wake
+                bedtime_obj = self.calculate_bedtime(wake_time, sleep_hours)
+                bed_dt = datetime.combine(today, bedtime_obj)
+                if current_time >= bed_dt:
+                    # Past bedtime, calculate for tomorrow
+                    bed_dt = datetime.combine(today + timedelta(days=1), bedtime_obj)
+                hours_until_bedtime = (bed_dt - current_time).total_seconds() / 3600
+            else:
+                # Before yesterday's evening wake (shouldn't happen but fallback)
+                is_before_wake = True
+                hours_until_wake = (wake_dt_today - current_time).total_seconds() / 3600
+                hours_since_wake = 0.0
+                hours_until_bedtime = budget["waking_hours_per_day"]
+        else:
+            # Morning wake time (standard case)
+            if current_time < wake_dt_today:
+                is_before_wake = True
+                hours_until_wake = (wake_dt_today - current_time).total_seconds() / 3600
+                hours_since_wake = 0.0
+                hours_until_bedtime = budget["waking_hours_per_day"]
+            else:
+                is_before_wake = False
+                hours_until_wake = 0.0
+                hours_since_wake = self.get_hours_since_wake(current_time, wake_time)
+                hours_until_bedtime = self.get_hours_until_bedtime(current_time, wake_time, sleep_hours)
         
         # Calculate remaining free time
         free_hours_budget = budget["free_hours_per_day"]
@@ -351,8 +388,11 @@ class OnboardingManager:
         day_progress = (hours_since_wake / waking_hours * 100) if waking_hours > 0 else 0
         study_progress = (spent.get("Study", 0) / study_goal * 100) if study_goal > 0 else 0
         
-        # Status messages
-        if hours_until_bedtime <= 0:
+        # Status messages for time of day
+        if is_before_wake:
+            time_status = f"Day hasn't started yet. Wake in {hours_until_wake:.1f}h"
+            time_status_color = "blue"
+        elif hours_until_bedtime <= 0:
             time_status = "Past bedtime! Time to sleep."
             time_status_color = "red"
         elif hours_until_bedtime < 2:
@@ -365,6 +405,7 @@ class OnboardingManager:
             time_status = f"{hours_until_bedtime:.1f} hours remaining today"
             time_status_color = "green"
         
+        # Status messages for study progress
         if study_remaining_realistic <= 0:
             study_status = "Study goal completed!" if spent.get("Study", 0) >= study_goal else "No time left today"
             study_status_color = "green" if spent.get("Study", 0) >= study_goal else "red"
@@ -382,6 +423,7 @@ class OnboardingManager:
             "bedtime": budget["bedtime"],
             "hours_since_wake": round(hours_since_wake, 1),
             "hours_until_bedtime": round(hours_until_bedtime, 1),
+            "hours_until_wake": round(hours_until_wake, 1),
             "day_progress_percent": round(day_progress, 1),
             
             # Absolute remaining (if time wasn't a constraint)
@@ -412,7 +454,7 @@ class OnboardingManager:
             
             # Flags
             "is_past_bedtime": hours_until_bedtime <= 0,
-            "is_before_wake": hours_since_wake <= 0,
+            "is_before_wake": is_before_wake,
             "study_goal_met": spent.get("Study", 0) >= study_goal,
             "time_constrained": study_remaining_realistic < study_remaining_absolute,
         }

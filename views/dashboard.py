@@ -20,56 +20,67 @@ def DashboardPage(page: ft.Page, session: dict = None):
     # Initialize onboarding manager
     onboarding_mgr = OnboardingManager()
     
-    # Get user's budget (from session or database)
-    # For now, use session data from onboarding
-    if session and "time_budget" in session:
-        budget = session["time_budget"]
-        user_data = session.get("user_data", {})
-    else:
-        # Default values if no session (for testing)
+    user_id = session.get("user_id") if session else None
+
+    # Get user's budget (from DB if user_id available, else fallback)
+    budget = onboarding_mgr.get_user_budget(user_id) if user_id else None
+    if not budget:
+        # Default values if no data
         budget = {
             "free_hours_per_day": 16.0,
             "study_goal_hours_per_day": 5.6,
             "work_hours_per_day": 0.0,
             "wake_time": "07:00",
             "bedtime": "23:00",
-        }
-        user_data = {
-            "has_work": False,
             "sleep_hours": 8.0,
         }
+    user_data = {
+        "has_work": budget.get("has_work", False),
+        "sleep_hours": budget.get("sleep_hours", 8.0),
+    }
     
     # Calculate remaining budget for today using REAL-TIME logic
-    # TODO: Get actual time logs from database
-    # For now, use mock data
-    time_spent_today = {
-        "Study": 2.0,   # 2 hours studied so far
-        "Work": 0.0,    # 0 hours worked
-        "total": 2.0,
+    time_spent_today = onboarding_mgr.get_time_spent_today(user_id) if user_id else {
+        "Study": 0.0,
+        "Work": 0.0,
+        "Personal": 0.0,
+        "total": 0.0,
     }
     
     study_goal = budget.get("study_goal_hours_per_day", 5.6)
     free_hours = budget.get("free_hours_per_day", 16.0)
-    
-    # NEW: Calculate realistic remaining time (considering bedtime)
+
+    # NEW: Calculate realistic remaining time (considering bedtime) using manager helper
     current_time = datetime.now()
-    wake_time = onboarding_mgr.parse_wake_time(budget.get("wake_time", "07:00"))
-    sleep_hours = user_data.get("sleep_hours", 8.0)
-    
-    hours_until_bedtime = onboarding_mgr.get_hours_until_bedtime(
-        current_time, wake_time, sleep_hours
-    )
-    hours_since_wake = onboarding_mgr.get_hours_since_wake(
-        current_time, wake_time
-    )
-    
-    # Calculate absolute remaining (ignoring time constraint)
-    study_remaining_absolute = max(0, study_goal - time_spent_today["Study"])
-    free_remaining_absolute = max(0, free_hours - time_spent_today["total"])
-    
-    # Calculate realistic remaining (constrained by bedtime)
-    study_remaining = min(study_remaining_absolute, max(0, hours_until_bedtime))
-    free_remaining = min(free_remaining_absolute, max(0, hours_until_bedtime))
+    remaining = onboarding_mgr.get_remaining_budget(user_id, current_time) if user_id else None
+    if not remaining or "error" in remaining:
+        wake_obj = onboarding_mgr.parse_wake_time(budget.get("wake_time", "07:00"))
+        sleep_hours = budget.get("sleep_hours", 8.0)
+        today = current_time.date()
+        wake_dt = datetime.combine(today, wake_obj)
+        is_before_wake = current_time < wake_dt
+
+        if is_before_wake:
+            hours_until_wake = (wake_dt - current_time).total_seconds() / 3600
+            hours_since_wake = 0.0
+            hours_until_bedtime = budget.get("waking_hours_per_day", 24 - sleep_hours)
+        else:
+            hours_until_wake = 0.0
+            hours_until_bedtime = onboarding_mgr.get_hours_until_bedtime(current_time, wake_obj, sleep_hours)
+            hours_since_wake = onboarding_mgr.get_hours_since_wake(current_time, wake_obj)
+
+        study_remaining = min(max(0, study_goal - time_spent_today.get("Study", 0)), max(0, hours_until_bedtime))
+        free_remaining = min(max(0, free_hours - time_spent_today.get("total", 0)), max(0, hours_until_bedtime))
+        study_remaining_absolute = max(0, study_goal - time_spent_today.get("Study", 0))
+    else:
+        hours_until_bedtime = remaining["hours_until_bedtime"]
+        hours_since_wake = remaining["hours_since_wake"]
+        hours_until_wake = remaining.get("hours_until_wake", 0)
+        study_remaining = remaining["study_hours_remaining"]
+        free_remaining = remaining["free_hours_remaining"]
+        study_remaining_absolute = remaining["study_hours_remaining_absolute"]
+        time_spent_today["total"] = remaining["total_hours_spent"]
+        time_spent_today["Study"] = remaining.get("study_hours_spent", time_spent_today.get("Study", 0))
     
     # Calculate progress values (0.0 to 1.0)
     study_progress = min(1.0, time_spent_today["Study"] / study_goal) if study_goal > 0 else 0
@@ -82,19 +93,34 @@ def DashboardPage(page: ft.Page, session: dict = None):
     time_text = ft.Text(now.strftime("%I:%M:%S %p"), size=36, weight=ft.FontWeight.BOLD)
     date_text = ft.Text(now.strftime("%A, %B %d, %Y"), size=14, color=ft.Colors.GREY_700)
     
-    # NEW: Status messages based on time remaining
-    if hours_until_bedtime <= 0:
-        time_status_msg = "Past bedtime! Time to sleep. 😴"
-        time_status_color = ft.Colors.RED_600
-    elif hours_until_bedtime < 2:
-        time_status_msg = f"Only {hours_until_bedtime:.1f} hours until bedtime! ⏰"
-        time_status_color = ft.Colors.ORANGE_600
-    elif hours_until_bedtime < 4:
-        time_status_msg = f"{hours_until_bedtime:.1f} hours remaining today"
-        time_status_color = ft.Colors.AMBER_600
+    # Status messages based on time remaining
+    color_map = {
+        "red": ft.Colors.RED_600,
+        "orange": ft.Colors.ORANGE_600,
+        "yellow": ft.Colors.AMBER_600,
+        "green": ft.Colors.GREEN_600,
+        "blue": ft.Colors.BLUE_600,
+    }
+
+    if user_id and remaining and "time_status" in remaining:
+        time_status_msg = remaining["time_status"]
+        time_status_color = color_map.get(remaining.get("time_status_color", "green"), ft.Colors.GREEN_600)
     else:
-        time_status_msg = f"{hours_until_bedtime:.1f} hours remaining today"
-        time_status_color = ft.Colors.GREEN_600
+        if hours_until_wake > 0:
+            time_status_msg = f"Day hasn't started yet. Wake in {hours_until_wake:.1f}h"
+            time_status_color = color_map["blue"]
+        elif hours_until_bedtime <= 0:
+            time_status_msg = "Past bedtime! Time to sleep. 😴"
+            time_status_color = color_map["red"]
+        elif hours_until_bedtime < 2:
+            time_status_msg = f"Only {hours_until_bedtime:.1f} hours until bedtime! ⏰"
+            time_status_color = color_map["orange"]
+        elif hours_until_bedtime < 4:
+            time_status_msg = f"{hours_until_bedtime:.1f} hours remaining today"
+            time_status_color = color_map["yellow"]
+        else:
+            time_status_msg = f"{hours_until_bedtime:.1f} hours remaining today"
+            time_status_color = color_map["green"]
     
     time_status_text = ft.Text(
         time_status_msg,
@@ -109,25 +135,54 @@ def DashboardPage(page: ft.Page, session: dict = None):
             now = datetime.now()
             time_text.value = now.strftime("%I:%M:%S %p")
             date_text.value = now.strftime("%A, %B %d, %Y")
-            
-            # Update time remaining status
-            current_hours_until_bed = onboarding_mgr.get_hours_until_bedtime(
-                now, wake_time, sleep_hours
-            )
-            
-            if current_hours_until_bed <= 0:
-                time_status_text.value = "Past bedtime! Time to sleep. 😴"
-                time_status_text.color = ft.Colors.RED_600
-            elif current_hours_until_bed < 2:
-                time_status_text.value = f"Only {current_hours_until_bed:.1f} hours until bedtime! ⏰"
-                time_status_text.color = ft.Colors.ORANGE_600
-            elif current_hours_until_bed < 4:
-                time_status_text.value = f"{current_hours_until_bed:.1f} hours remaining today"
-                time_status_text.color = ft.Colors.AMBER_600
+
+            if user_id:
+                live_budget = onboarding_mgr.get_user_budget(user_id)
+                live_remaining = onboarding_mgr.get_remaining_budget(user_id, now) if live_budget else None
             else:
-                time_status_text.value = f"{current_hours_until_bed:.1f} hours remaining today"
-                time_status_text.color = ft.Colors.GREEN_600
-            
+                live_budget = None
+                live_remaining = None
+
+            if live_remaining and "time_status" in live_remaining:
+                time_status_text.value = live_remaining["time_status"]
+                color_map = {
+                    "red": ft.Colors.RED_600,
+                    "orange": ft.Colors.ORANGE_600,
+                    "yellow": ft.Colors.AMBER_600,
+                    "green": ft.Colors.GREEN_600,
+                    "blue": ft.Colors.BLUE_600,
+                }
+                time_status_text.color = color_map.get(live_remaining.get("time_status_color", "green"), ft.Colors.GREEN_600)
+            else:
+                wake_obj = onboarding_mgr.parse_wake_time(budget.get("wake_time", "07:00"))
+                sleep_hours = budget.get("sleep_hours", 8.0)
+                today = now.date()
+                wake_dt = datetime.combine(today, wake_obj)
+                is_before_wake = now < wake_dt
+
+                if is_before_wake:
+                    hours_until_wake = (wake_dt - now).total_seconds() / 3600
+                    time_status_text.value = f"Day hasn't started yet. Wake in {hours_until_wake:.1f}h"
+                    time_status_text.color = ft.Colors.BLUE_600
+                else:
+                    fallback_hours_until_bed = onboarding_mgr.get_hours_until_bedtime(
+                        now,
+                        wake_obj,
+                        sleep_hours,
+                    )
+                    if fallback_hours_until_bed <= 0:
+                        time_status_text.value = "Past bedtime! Time to sleep. 😴"
+                        time_status_text.color = ft.Colors.RED_600
+                    elif fallback_hours_until_bed < 2:
+                        time_status_text.value = f"Only {fallback_hours_until_bed:.1f} hours until bedtime! ⏰"
+                        time_status_text.color = ft.Colors.ORANGE_600
+                    elif fallback_hours_until_bed < 4:
+                        time_status_text.value = f"{fallback_hours_until_bed:.1f} hours remaining today"
+                        time_status_text.color = ft.Colors.AMBER_600
+                    else:
+                        time_status_text.value = f"{fallback_hours_until_bed:.1f} hours remaining today"
+                        time_status_text.color = ft.Colors.GREEN_600
+
             page.update()
             time.sleep(1)
     
@@ -252,7 +307,7 @@ def DashboardPage(page: ft.Page, session: dict = None):
     
     # Remaining hours message - NOW WITH REALISTIC TIME CONSIDERATION
     if study_remaining <= 0:
-        if time_spent_today["Study"] >= study_goal:
+        if time_spent_today.get("Study", 0) >= study_goal:
             remaining_message = "Study goal completed! Great job! 🎉"
             message_color = ft.Colors.GREEN_600
             message_bg = ft.Colors.GREEN_50

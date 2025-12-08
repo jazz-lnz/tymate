@@ -58,3 +58,7 @@ python -m tests.test_database
 ```
 python -m tests.test_onboarding
 ```
+### Authentication Test
+```
+python -m tests.test_auth
+```

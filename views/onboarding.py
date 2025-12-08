@@ -6,7 +6,7 @@ Visual wizard for time budget setup - SEE IT WORKING!
 import flet as ft
 from state.onboarding_manager import OnboardingManager
 
-def OnboardingPage(page: ft.Page, on_complete):
+def OnboardingPage(page: ft.Page, on_complete, session: dict):
     """
     Onboarding wizard with multiple steps
     
@@ -271,10 +271,40 @@ def OnboardingPage(page: ft.Page, on_complete):
         # Recommended study goal
         study_goal = budget["free_hours_per_day"] * 0.35
         
+        # Add error message display
+        error_msg = ft.Text("", color=ft.Colors.RED_600, size=14)
+
         def finish_onboarding(e):
-            # Save to database (user_id would come from session in real app)
-            # For now, just show success and call callback
-            on_complete(onboarding_data, budget)
+            # Get user_id from session
+            user_id = session.get("user_id")
+            
+            if not user_id:
+                error_msg.value = "Error: No user logged in"
+                page.update()
+                return
+            
+            # Calculate the study goal
+            study_goal = budget["free_hours_per_day"] * 0.35
+            
+            # ACTUALLY SAVE TO DATABASE
+            success = manager.save_user_profile(
+                user_id=user_id,
+                sleep_hours=onboarding_data["sleep_hours"],
+                wake_time=onboarding_data["wake_time"],
+                has_work=onboarding_data["has_work"],
+                work_hours_per_week=onboarding_data["work_hours_per_week"],
+                work_days_per_week=onboarding_data["work_days_per_week"],
+                study_goal_hours_per_day=study_goal
+            )
+            
+            if success:
+                # Mark as completed in session
+                session["onboarding_completed"] = True
+                # Call the callback to redirect
+                on_complete(onboarding_data, budget)
+            else:
+                error_msg.value = "Error saving profile. Please try again."
+                page.update()
         
         return ft.Container(
             content=ft.Column(

@@ -39,9 +39,9 @@ def main(page: ft.Page):
         """Handle route changes"""
         
         # Special case: If user needs onboarding, redirect
-        if not session["onboarding_completed"] and page.route not in ("/onboarding", "/login"):
+        if not session["onboarding_completed"] and page.route not in ("/onboarding", "/login", "/settings"):
             page.route = "/onboarding"
-            route = "/onboarding"
+            return route_change("/onboarding")
         
         # Clear and rebuild
         page.controls.clear()
@@ -61,9 +61,9 @@ def main(page: ft.Page):
         elif page.route == "/log_hours":
             main_content.content = LogHoursPage(page)
         elif page.route == "/settings":
-            main_content.content = SettingsPage(page)
+            main_content.content = SettingsPage(page, session)
         elif page.route == "/login":
-            main_content.content = LoginPage(page, session, route_change)
+            main_content.content = LoginPage(page, session)
         elif page.route == "/onboarding":
             def on_onboarding_complete(data, budget):
                 """Called when onboarding is finished"""
@@ -76,7 +76,11 @@ def main(page: ft.Page):
                 page.route = "/dashboard"
                 route_change("/dashboard")
             
-            main_content.content = OnboardingPage(page, on_onboarding_complete)
+            main_content.content = OnboardingPage(
+                page, 
+                on_onboarding_complete,
+                session
+            )
         else:
             main_content.content = DashboardPage(page)
 
@@ -85,10 +89,9 @@ def main(page: ft.Page):
     # Set up route change handler
     page.on_route_change = lambda e: route_change(page.route)
     
-    # Start with onboarding route (for testing)
-    # In production, check if user is logged in and has completed onboarding
-    page.route = "/onboarding"
-    route_change("/onboarding")
+    # Start with login route
+    page.route = "/login"
+    route_change("/login")
 
 # Run the app
 if __name__ == "__main__":

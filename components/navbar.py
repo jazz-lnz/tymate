@@ -26,14 +26,7 @@ def create_navbar(page: ft.Page, current_route: str, session: dict, route_change
     is_admin = user and user.role == "admin"
     
     # Build navigation controls
-    nav_controls = [
-        # Hamburger menu button
-        ft.IconButton(
-            icon=ft.Icons.MENU,
-            icon_color=ft.Colors.WHITE,
-            tooltip="Menu",
-        ),
-    ]
+    nav_controls = []
     
     # Add role-specific menu items
     if is_admin:
@@ -43,6 +36,7 @@ def create_navbar(page: ft.Page, current_route: str, session: dict, route_change
                 "Admin",
                 style=ft.ButtonStyle(
                     color=ft.Colors.ORANGE_400 if is_active("/admin") else ft.Colors.WHITE,
+                    text_style=ft.TextStyle(size=16, weight=ft.FontWeight.W_600),
                 ),
                 on_click=lambda _: navigate_to("/admin"),
             )
@@ -54,6 +48,7 @@ def create_navbar(page: ft.Page, current_route: str, session: dict, route_change
                 "Dashboard",
                 style=ft.ButtonStyle(
                     color=ft.Colors.ORANGE_400 if is_active("/dashboard") else ft.Colors.WHITE,
+                    text_style=ft.TextStyle(size=16, weight=ft.FontWeight.W_600),
                 ),
                 on_click=lambda _: navigate_to("/dashboard"),
             ),
@@ -61,6 +56,7 @@ def create_navbar(page: ft.Page, current_route: str, session: dict, route_change
                 "Tasks",
                 style=ft.ButtonStyle(
                     color=ft.Colors.ORANGE_400 if is_active("/tasks") else ft.Colors.WHITE,
+                    text_style=ft.TextStyle(size=16, weight=ft.FontWeight.W_600),
                 ),
                 on_click=lambda _: navigate_to("/tasks"),
             ),
@@ -68,6 +64,7 @@ def create_navbar(page: ft.Page, current_route: str, session: dict, route_change
                 "Log Hours",
                 style=ft.ButtonStyle(
                     color=ft.Colors.ORANGE_400 if is_active("/log_hours") else ft.Colors.WHITE,
+                    text_style=ft.TextStyle(size=16, weight=ft.FontWeight.W_600),
                 ),
                 on_click=lambda _: navigate_to("/log_hours"),
             ),
@@ -78,33 +75,35 @@ def create_navbar(page: ft.Page, current_route: str, session: dict, route_change
         # Spacer to push right-side items to the end
         ft.Container(expand=True),
         
-        # Online/Offline status
-        ft.Container(
-            content=ft.Text(
-                status_text,
-                color=ft.Colors.WHITE,
-                size=12,
-                weight=ft.FontWeight.BOLD,
-            ),
-            bgcolor=status_color,
-            border_radius=20,
-            padding=ft.padding.symmetric(horizontal=15, vertical=8),
-        ),
-        
-        # Toggle Sync button
-        ft.OutlinedButton(
-            "Toggle Sync",
-            style=ft.ButtonStyle(
-                color=ft.Colors.WHITE,
-                side=ft.BorderSide(1, ft.Colors.WHITE),
-            ),
-            on_click=toggle_sync,
-        ),
+# ----------------------------- Future Feature: Sync Toggle -----------------------------
+        # # Online/Offline status
+        # ft.Container(
+        #     content=ft.Text(
+        #         status_text,
+        #         color=ft.Colors.WHITE,
+        #         size=12,
+        #         weight=ft.FontWeight.BOLD,
+        #     ),
+        #     bgcolor=status_color,
+        #     border_radius=20,
+        #     padding=ft.padding.symmetric(horizontal=15, vertical=8),
+        # ),
+        # 
+        # # Toggle Sync button
+        # ft.OutlinedButton(
+        #     "Toggle Sync",
+        #     style=ft.ButtonStyle(
+        #         color=ft.Colors.WHITE,
+        #         side=ft.BorderSide(1, ft.Colors.WHITE),
+        #     ),
+        #     on_click=toggle_sync,
+        # ),
         
         # Settings icon
         ft.IconButton(
             icon=ft.Icons.SETTINGS,
             icon_color=ft.Colors.WHITE,
+            icon_size=24,
             tooltip="Settings",
             on_click=lambda _: navigate_to("/settings"),
         ),
@@ -116,7 +115,7 @@ def create_navbar(page: ft.Page, current_route: str, session: dict, route_change
             alignment=ft.MainAxisAlignment.START,
         ),
         bgcolor=ft.Colors.GREY_800,
-        padding=ft.padding.symmetric(horizontal=20, vertical=10),
+        padding=ft.padding.symmetric(horizontal=28, vertical=20),
     )
     
     return navbar

@@ -8,7 +8,7 @@ from state.onboarding_manager import OnboardingManager
 
 def DashboardPage(page: ft.Page, session: dict = None):
     """
-    TYMATE Dashboard Page
+    TYMATE Dashboard Page - Minimalist line-based design
     Shows current time, upcoming tasks, analytics preview, and time budget
     UPDATED: Now uses real-time budget calculations with wake/bedtime awareness
     
@@ -50,7 +50,7 @@ def DashboardPage(page: ft.Page, session: dict = None):
     study_goal = budget.get("study_goal_hours_per_day", 5.6)
     free_hours = budget.get("free_hours_per_day", 16.0)
 
-    # NEW: Calculate realistic remaining time (considering bedtime) using manager helper
+    # Calculate realistic remaining time
     current_time = datetime.now()
     remaining = onboarding_mgr.get_remaining_budget(user_id, current_time) if user_id else None
     if not remaining or "error" in remaining:
@@ -62,19 +62,16 @@ def DashboardPage(page: ft.Page, session: dict = None):
 
         if is_before_wake:
             hours_until_wake = (wake_dt - current_time).total_seconds() / 3600
-            hours_since_wake = 0.0
             hours_until_bedtime = budget.get("waking_hours_per_day", 24 - sleep_hours)
         else:
             hours_until_wake = 0.0
             hours_until_bedtime = onboarding_mgr.get_hours_until_bedtime(current_time, wake_obj, sleep_hours)
-            hours_since_wake = onboarding_mgr.get_hours_since_wake(current_time, wake_obj)
 
         study_remaining = min(max(0, study_goal - time_spent_today.get("Study", 0)), max(0, hours_until_bedtime))
         free_remaining = min(max(0, free_hours - time_spent_today.get("total", 0)), max(0, hours_until_bedtime))
         study_remaining_absolute = max(0, study_goal - time_spent_today.get("Study", 0))
     else:
         hours_until_bedtime = remaining["hours_until_bedtime"]
-        hours_since_wake = remaining["hours_since_wake"]
         hours_until_wake = remaining.get("hours_until_wake", 0)
         study_remaining = remaining["study_hours_remaining"]
         free_remaining = remaining["free_hours_remaining"]
@@ -84,36 +81,36 @@ def DashboardPage(page: ft.Page, session: dict = None):
     
     # Calculate progress values (0.0 to 1.0)
     study_progress = min(1.0, time_spent_today["Study"] / study_goal) if study_goal > 0 else 0
-    work_progress = 0.0  # Will be calculated when work logging is implemented
+    work_progress = 0.0
     
     # Get current date and time
     now = datetime.now()
     
     # Create time display with real-time updates
-    time_text = ft.Text(now.strftime("%I:%M:%S %p"), size=36, weight=ft.FontWeight.BOLD)
-    date_text = ft.Text(now.strftime("%A, %B %d, %Y"), size=14, color=ft.Colors.GREY_700)
+    time_text = ft.Text(now.strftime("%I:%M:%S %p"), size=48, weight=ft.FontWeight.W_700, color=ft.Colors.GREY_900)
+    date_text = ft.Text(now.strftime("%A, %B %d. %Y"), size=16, color=ft.Colors.GREY_600)
     
-    # Status messages based on time remaining
+    # Status messages
     color_map = {
-        "red": ft.Colors.RED_600,
-        "orange": ft.Colors.ORANGE_600,
-        "yellow": ft.Colors.AMBER_600,
-        "green": ft.Colors.GREEN_600,
-        "blue": ft.Colors.BLUE_600,
+        "red": ft.Colors.RED_700,
+        "orange": ft.Colors.ORANGE_700,
+        "yellow": ft.Colors.AMBER_700,
+        "green": ft.Colors.GREEN_700,
+        "blue": ft.Colors.BLUE_700,
     }
 
     if user_id and remaining and "time_status" in remaining:
         time_status_msg = remaining["time_status"]
-        time_status_color = color_map.get(remaining.get("time_status_color", "green"), ft.Colors.GREEN_600)
+        time_status_color = color_map.get(remaining.get("time_status_color", "green"), ft.Colors.GREEN_700)
     else:
         if hours_until_wake > 0:
             time_status_msg = f"Day hasn't started yet. Wake in {hours_until_wake:.1f}h"
             time_status_color = color_map["blue"]
         elif hours_until_bedtime <= 0:
-            time_status_msg = "Past bedtime! Time to sleep. 😴"
+            time_status_msg = "Past bedtime! Time to sleep."
             time_status_color = color_map["red"]
         elif hours_until_bedtime < 2:
-            time_status_msg = f"Only {hours_until_bedtime:.1f} hours until bedtime! ⏰"
+            time_status_msg = f"Only {hours_until_bedtime:.1f} hours until bedtime"
             time_status_color = color_map["orange"]
         elif hours_until_bedtime < 4:
             time_status_msg = f"{hours_until_bedtime:.1f} hours remaining today"
@@ -124,9 +121,17 @@ def DashboardPage(page: ft.Page, session: dict = None):
     
     time_status_text = ft.Text(
         time_status_msg,
-        size=12,
+        size=14,
         color=time_status_color,
-        weight=ft.FontWeight.BOLD,
+        weight=ft.FontWeight.W_600,
+    )
+    
+    time_status_container = ft.Container(
+        content=time_status_text,
+        padding=ft.padding.symmetric(horizontal=12, vertical=8),
+        border_radius=6,
+        bgcolor=ft.Colors.GREY_200,
+        alignment=ft.alignment.center,
     )
     
     # Function to update time every second
@@ -134,25 +139,16 @@ def DashboardPage(page: ft.Page, session: dict = None):
         while True:
             now = datetime.now()
             time_text.value = now.strftime("%I:%M:%S %p")
-            date_text.value = now.strftime("%A, %B %d, %Y")
+            date_text.value = now.strftime("%A, %B %d. %Y")
 
             if user_id:
-                live_budget = onboarding_mgr.get_user_budget(user_id)
-                live_remaining = onboarding_mgr.get_remaining_budget(user_id, now) if live_budget else None
+                live_remaining = onboarding_mgr.get_remaining_budget(user_id, now)
             else:
-                live_budget = None
                 live_remaining = None
 
             if live_remaining and "time_status" in live_remaining:
                 time_status_text.value = live_remaining["time_status"]
-                color_map = {
-                    "red": ft.Colors.RED_600,
-                    "orange": ft.Colors.ORANGE_600,
-                    "yellow": ft.Colors.AMBER_600,
-                    "green": ft.Colors.GREEN_600,
-                    "blue": ft.Colors.BLUE_600,
-                }
-                time_status_text.color = color_map.get(live_remaining.get("time_status_color", "green"), ft.Colors.GREEN_600)
+                time_status_text.color = color_map.get(live_remaining.get("time_status_color", "green"), ft.Colors.GREEN_700)
             else:
                 wake_obj = onboarding_mgr.parse_wake_time(budget.get("wake_time", "07:00"))
                 sleep_hours = budget.get("sleep_hours", 8.0)
@@ -163,25 +159,21 @@ def DashboardPage(page: ft.Page, session: dict = None):
                 if is_before_wake:
                     hours_until_wake = (wake_dt - now).total_seconds() / 3600
                     time_status_text.value = f"Day hasn't started yet. Wake in {hours_until_wake:.1f}h"
-                    time_status_text.color = ft.Colors.BLUE_600
+                    time_status_text.color = ft.Colors.BLUE_700
                 else:
-                    fallback_hours_until_bed = onboarding_mgr.get_hours_until_bedtime(
-                        now,
-                        wake_obj,
-                        sleep_hours,
-                    )
+                    fallback_hours_until_bed = onboarding_mgr.get_hours_until_bedtime(now, wake_obj, sleep_hours)
                     if fallback_hours_until_bed <= 0:
-                        time_status_text.value = "Past bedtime! Time to sleep. 😴"
-                        time_status_text.color = ft.Colors.RED_600
+                        time_status_text.value = "Past bedtime! Time to sleep."
+                        time_status_text.color = ft.Colors.RED_700
                     elif fallback_hours_until_bed < 2:
-                        time_status_text.value = f"Only {fallback_hours_until_bed:.1f} hours until bedtime! ⏰"
-                        time_status_text.color = ft.Colors.ORANGE_600
+                        time_status_text.value = f"Only {fallback_hours_until_bed:.1f} hours until bedtime"
+                        time_status_text.color = ft.Colors.ORANGE_700
                     elif fallback_hours_until_bed < 4:
                         time_status_text.value = f"{fallback_hours_until_bed:.1f} hours remaining today"
-                        time_status_text.color = ft.Colors.AMBER_600
+                        time_status_text.color = ft.Colors.AMBER_700
                     else:
                         time_status_text.value = f"{fallback_hours_until_bed:.1f} hours remaining today"
-                        time_status_text.color = ft.Colors.GREEN_600
+                        time_status_text.color = ft.Colors.GREEN_700
 
             page.update()
             time.sleep(1)
@@ -201,15 +193,19 @@ def DashboardPage(page: ft.Page, session: dict = None):
     ]
     
     # Create time display section
-    time_section = ft.Column(
-        controls=[
-            ft.Text("Current Time", size=14, color=ft.Colors.GREY_700),
-            time_text,
-            date_text,
-            ft.Container(height=5),
-            time_status_text,
-        ],
-        spacing=5,
+    time_section = ft.Container(
+        content=ft.Column(
+            controls=[
+                ft.Text("Current Time", size=20, color=ft.Colors.GREY_700, weight=ft.FontWeight.W_600),
+                ft.Container(height=8),
+                time_text,
+                date_text,
+                ft.Container(height=20),
+                time_status_container,
+            ],
+            spacing=0,
+        ),
+        padding=20,
     )
     
     # Helper function to check if mobile
@@ -222,24 +218,30 @@ def DashboardPage(page: ft.Page, session: dict = None):
     upcoming_tasks_section = ft.Container(
         content=ft.Column(
             controls=[
-                ft.Text("Upcoming Tasks", size=18, weight=ft.FontWeight.BOLD),
-                ft.Container(height=10),
+                ft.Text("Upcoming Tasks", size=18, weight=ft.FontWeight.W_600, color=ft.Colors.GREY_900),
+                ft.Container(
+                    height=2,
+                    bgcolor=ft.Colors.GREY_400,
+                    margin=ft.margin.only(top=12, bottom=16),
+                ),
                 ft.Column(
                     controls=task_items,
                     scroll=ft.ScrollMode.AUTO,
                     height=280,
+                    spacing=0,
                 ),
             ],
+            spacing=0,
         ),
-        bgcolor=ft.Colors.GREY_100,
-        border_radius=12,
         padding=20,
+        border=ft.border.all(2, ft.Colors.GREY_300),
+        border_radius=8,
+        bgcolor=ft.Colors.WHITE,
         expand=True,
     )
     
     # Create simple bar chart for analytics
-    # TODO: Get real data from database
-    bar_heights = [120, 40, 0, 0, 0, 0, 0]  # Monday has 3 hours, Tuesday 1 hour
+    bar_heights = [120, 40, 0, 0, 0, 0, 0]
     days = ["Mon", "Tues", "Wed", "Thu", "Fri", "Sat", "Sun"]
     
     bars = []
@@ -248,8 +250,8 @@ def DashboardPage(page: ft.Page, session: dict = None):
             ft.Container(
                 width=50,
                 height=height,
-                bgcolor=ft.Colors.BLUE_400,
-                border_radius=4,
+                bgcolor=ft.Colors.GREY_600,
+                border_radius=2,
             )
         )
     
@@ -258,16 +260,21 @@ def DashboardPage(page: ft.Page, session: dict = None):
             controls=[
                 ft.Row(
                     controls=[
-                        ft.Text("Analytics Preview", size=18, weight=ft.FontWeight.BOLD),
+                        ft.Text("Analytics Preview", size=18, weight=ft.FontWeight.W_600, color=ft.Colors.GREY_900),
                         ft.IconButton(
-                            icon=ft.Icons.OPEN_IN_FULL,
+                            icon=ft.Icons.OPEN_IN_FULL_OUTLINED,
                             icon_size=20,
+                            icon_color=ft.Colors.GREY_700,
                             tooltip="View full analytics",
                         ),
                     ],
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 ),
-                ft.Container(height=10),
+                ft.Container(
+                    height=2,
+                    bgcolor=ft.Colors.GREY_400,
+                    margin=ft.margin.only(top=12, bottom=16),
+                ),
                 ft.Container(
                     content=ft.Row(
                         controls=bars,
@@ -278,250 +285,253 @@ def DashboardPage(page: ft.Page, session: dict = None):
                     padding=10,
                 ),
                 ft.Row(
-                    controls=[ft.Text(day, size=12) for day in days],
+                    controls=[ft.Text(day, size=11, color=ft.Colors.GREY_600) for day in days],
                     alignment=ft.MainAxisAlignment.SPACE_AROUND,
                 ),
             ],
+            spacing=0,
         ),
-        bgcolor=ft.Colors.GREY_100,
-        border_radius=12,
         padding=20,
+        border=ft.border.all(2, ft.Colors.GREY_300),
+        border_radius=8,
+        bgcolor=ft.Colors.WHITE,
     )
     
-    # ==================== UPDATED: Real Time Budget Display ====================
-    
-    # Progress bar text showing "X / Y hours"
+    # Progress bar text
     study_progress_text = ft.Text(
         f"{time_spent_today['Study']:.1f} / {study_goal:.1f} hours",
-        size=12,
-        color=ft.Colors.BLUE_700,
-        weight=ft.FontWeight.BOLD,
+        size=14,
+        color=ft.Colors.GREY_900,
+        weight=ft.FontWeight.W_600,
     )
     
     work_progress_text = ft.Text(
         f"{time_spent_today['Work']:.1f} / {budget.get('work_hours_per_day', 0):.1f} hours",
-        size=12,
-        color=ft.Colors.ORANGE_700,
-        weight=ft.FontWeight.BOLD,
+        size=14,
+        color=ft.Colors.GREY_900,
+        weight=ft.FontWeight.W_600,
     )
     
-    # Remaining hours message - NOW WITH REALISTIC TIME CONSIDERATION
+    # Remaining hours message
     if study_remaining <= 0:
         if time_spent_today.get("Study", 0) >= study_goal:
-            remaining_message = "Study goal completed! Great job! 🎉"
-            message_color = ft.Colors.GREEN_600
-            message_bg = ft.Colors.GREEN_50
+            remaining_message = "Study goal completed! Great job!"
+            message_color = ft.Colors.GREEN_700
         else:
             remaining_message = "No time left today to reach your study goal"
-            message_color = ft.Colors.RED_600
-            message_bg = ft.Colors.RED_50
+            message_color = ft.Colors.RED_700
     elif study_remaining < study_remaining_absolute:
         remaining_message = f"{study_remaining:.1f} hours remaining (limited by bedtime at {budget.get('bedtime', '23:00')})"
-        message_color = ft.Colors.ORANGE_600
-        message_bg = ft.Colors.ORANGE_50
+        message_color = ft.Colors.ORANGE_700
     else:
         remaining_message = f"{study_remaining:.1f} hours remaining to meet your study goal."
-        message_color = ft.Colors.BLUE_600
-        message_bg = ft.Colors.BLUE_50
+        message_color = ft.Colors.GREY_700
     
     time_budget_section = ft.Container(
         content=ft.Column(
             controls=[
-                ft.Text("Today's Time Budget", size=16, weight=ft.FontWeight.BOLD),
-                ft.Container(height=10),
-                
-                # Budget overview card with wake/bedtime info
+                ft.Text("Today's Time Budget", size=18, weight=ft.FontWeight.W_600, color=ft.Colors.GREY_900),
                 ft.Container(
-                    content=ft.Column(
-                        controls=[
-                            ft.Row(
-                                controls=[
-                                    ft.Text("⏰ Free Time:", size=12),
-                                    ft.Text(
-                                        f"{free_remaining:.1f} / {free_hours:.1f} hrs left",
-                                        size=12,
-                                        weight=ft.FontWeight.BOLD,
-                                        color=ft.Colors.GREEN_600,
-                                    ),
-                                ],
-                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                            ),
-                            ft.Row(
-                                controls=[
-                                    ft.Text("🌅 Wake Time:", size=12),
-                                    ft.Text(
-                                        budget.get("wake_time", "07:00"),
-                                        size=12,
-                                        color=ft.Colors.GREY_600,
-                                    ),
-                                ],
-                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                            ),
-                            ft.Row(
-                                controls=[
-                                    ft.Text("🌙 Bedtime:", size=12),
-                                    ft.Text(
-                                        budget.get("bedtime", "23:00"),
-                                        size=12,
-                                        color=ft.Colors.GREY_600,
-                                    ),
-                                ],
-                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                            ),
-                            ft.Row(
-                                controls=[
-                                    ft.Text("😴 Sleep:", size=12),
-                                    ft.Text(
-                                        f"{user_data.get('sleep_hours', 8)} hrs/day",
-                                        size=12,
-                                        color=ft.Colors.GREY_600,
-                                    ),
-                                ],
-                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                            ),
-                        ],
-                    ),
-                    bgcolor=ft.Colors.BLUE_50,
-                    border_radius=8,
-                    padding=10,
+                    height=2,
+                    bgcolor=ft.Colors.GREY_400,
+                    margin=ft.margin.only(top=12, bottom=16),
                 ),
                 
-                ft.Container(height=15),
+                # Budget overview
+                ft.Column(
+                    controls=[
+                        ft.Row(
+                            controls=[
+                                ft.Text("Free Time", size=12, color=ft.Colors.GREY_700, weight=ft.FontWeight.W_500),
+                                ft.Text(
+                                    f"{free_remaining:.1f} / {free_hours:.1f} hrs left",
+                                    size=12,
+                                    weight=ft.FontWeight.W_600,
+                                    color=ft.Colors.GREY_900,
+                                ),
+                            ],
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        ),
+                        ft.Container(height=4),
+                        ft.Row(
+                            controls=[
+                                ft.Text("Wake Time", size=12, color=ft.Colors.GREY_700, weight=ft.FontWeight.W_500),
+                                ft.Text(
+                                    budget.get("wake_time", "07:00"),
+                                    size=12,
+                                    weight=ft.FontWeight.W_600,
+                                    color=ft.Colors.GREY_900,
+                                ),
+                            ],
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        ),
+                        ft.Container(height=4),
+                        ft.Row(
+                            controls=[
+                                ft.Text("Bedtime", size=12, color=ft.Colors.GREY_700, weight=ft.FontWeight.W_500),
+                                ft.Text(
+                                    budget.get("bedtime", "23:00"),
+                                    size=12,
+                                    weight=ft.FontWeight.W_600,
+                                    color=ft.Colors.GREY_900,
+                                ),
+                            ],
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        ),
+                        ft.Container(height=4),
+                        ft.Row(
+                            controls=[
+                                ft.Text("Sleep", size=12, color=ft.Colors.GREY_700, weight=ft.FontWeight.W_500),
+                                ft.Text(
+                                    f"{user_data.get('sleep_hours', 8)} hrs/day",
+                                    size=12,
+                                    weight=ft.FontWeight.W_600,
+                                    color=ft.Colors.GREY_900,
+                                ),
+                            ],
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        ),
+                    ],
+                    spacing=0,
+                ),
+                
+                ft.Container(height=16),
                 
                 # Study time progress
                 ft.Row(
                     controls=[
-                        ft.Text("Study Time", size=12, color=ft.Colors.GREY_700),
+                        ft.Text("Study Time", size=14, color=ft.Colors.GREY_700, weight=ft.FontWeight.W_500),
                         study_progress_text,
                     ],
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 ),
+                ft.Container(height=8),
                 ft.ProgressBar(
                     value=study_progress,
-                    color=ft.Colors.BLUE_400,
-                    bgcolor=ft.Colors.BLUE_100,
+                    color=ft.Colors.GREY_800,
+                    bgcolor=ft.Colors.GREY_300,
                     height=10,
-                    expand=True,
                 ),
                 
-                ft.Container(height=15),
+                ft.Container(height=16),
                 
-                # Work time progress (if applicable)
+                # Work time progress if applicable
                 ft.Row(
                     controls=[
-                        ft.Text("Work Time", size=12, color=ft.Colors.GREY_700),
+                        ft.Text("WorkTime", size=14, color=ft.Colors.GREY_700, weight=ft.FontWeight.W_500),
                         work_progress_text,
                     ],
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 ),
+                ft.Container(height=8),
                 ft.ProgressBar(
                     value=work_progress,
-                    color=ft.Colors.ORANGE_400,
-                    bgcolor=ft.Colors.ORANGE_100,
+                    color=ft.Colors.GREY_800,
+                    bgcolor=ft.Colors.GREY_300,
                     height=10,
-                    expand=True,
                 ),
                 
-                ft.Container(height=15),
+                ft.Container(height=20),
                 
-                # Remaining hours message with realistic calculation
-                ft.Container(
-                    content=ft.Text(
-                        remaining_message,
-                        size=12,
-                        color=message_color,
-                        text_align=ft.TextAlign.CENTER,
-                        weight=ft.FontWeight.BOLD,
-                    ),
-                    bgcolor=message_bg,
-                    border_radius=8,
-                    padding=10,
+                # Remaining hours message
+                ft.Text(
+                    remaining_message,
+                    size=13,
+                    color=message_color,
+                    weight=ft.FontWeight.W_600,
+                    text_align=ft.TextAlign.CENTER,
                 ),
             ],
             horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+            spacing=0,
         ),
-        bgcolor=ft.Colors.GREY_100,
-        border_radius=12,
         padding=20,
+        border=ft.border.all(2, ft.Colors.GREY_300),
+        border_radius=8,
+        bgcolor=ft.Colors.WHITE,
         expand=True,
     )
     
-    # ==================== Summary Cards with Real Data ====================
-    
-    # TODO: Get from database
+    # Summary Cards
     total_tasks_count = len(upcoming_tasks)
     completed_today_count = 0
-    hours_this_week = time_spent_today["total"] * 3  # Mock: assume 3 days logged
-    completion_rate = 0.0  # Will calculate when tasks are in DB
+    hours_this_week = time_spent_today["total"] * 3
+    completion_rate = 0.0
     
-    summary_cards = ft.Column(
+    summary_cards = ft.Row(
         controls=[
-            ft.Row(
-                controls=[
-                    ft.Container(
-                        content=ft.Column(
-                            controls=[
-                                ft.Text("Total Tasks", size=12, color=ft.Colors.GREY_600),
-                                ft.Text(str(total_tasks_count), size=24, weight=ft.FontWeight.BOLD),
-                            ],
-                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                        ),
-                        bgcolor=ft.Colors.GREY_300,
-                        border_radius=10,
-                        padding=20,
-                        expand=True,
-                        height=80,
-                        alignment=ft.alignment.center,
-                    ),
-                    ft.Container(
-                        content=ft.Column(
-                            controls=[
-                                ft.Text("Completed Today", size=12, color=ft.Colors.GREY_600),
-                                ft.Text(str(completed_today_count), size=24, weight=ft.FontWeight.BOLD),
-                            ],
-                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                        ),
-                        bgcolor=ft.Colors.GREY_300,
-                        border_radius=10,
-                        padding=20,
-                        expand=True,
-                        height=80,
-                        alignment=ft.alignment.center,
-                    ),
-                    ft.Container(
-                        content=ft.Column(
-                            controls=[
-                                ft.Text("Hours This Week", size=12, color=ft.Colors.GREY_600),
-                                ft.Text(f"{hours_this_week:.1f}", size=24, weight=ft.FontWeight.BOLD),
-                            ],
-                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                        ),
-                        bgcolor=ft.Colors.GREY_300,
-                        border_radius=10,
-                        padding=20,
-                        expand=True,
-                        height=80,
-                        alignment=ft.alignment.center,
-                    ),
-                    ft.Container(
-                        content=ft.Column(
-                            controls=[
-                                ft.Text("Completion Rate", size=12, color=ft.Colors.GREY_600),
-                                ft.Text(f"{completion_rate:.0f}%", size=24, weight=ft.FontWeight.BOLD),
-                            ],
-                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                        ),
-                        bgcolor=ft.Colors.GREY_300,
-                        border_radius=10,
-                        padding=20,
-                        expand=True,
-                        height=80,
-                        alignment=ft.alignment.center,
-                    ),
-                ],
-                spacing=10,
+            ft.Container(
+                content=ft.Column(
+                    controls=[
+                        ft.Text("Total Tasks", size=13, color=ft.Colors.GREY_700, weight=ft.FontWeight.W_600),
+                        ft.Container(height=6),
+                        ft.Text(str(total_tasks_count), size=32, weight=ft.FontWeight.W_400, color=ft.Colors.GREY_900),
+                    ],
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    spacing=0,
+                ),
+                border=ft.border.all(2, ft.Colors.GREY_300),
+                border_radius=8,
+                padding=16,
+                width=200,
+                alignment=ft.alignment.center,
+                bgcolor=ft.Colors.GREY_100,
+            ),
+            ft.Container(
+                content=ft.Column(
+                    controls=[
+                        ft.Text("Completed Today", size=13, color=ft.Colors.GREY_700, weight=ft.FontWeight.W_600),
+                        ft.Container(height=6),
+                        ft.Text(str(completed_today_count), size=32, weight=ft.FontWeight.W_400, color=ft.Colors.GREY_900),
+                    ],
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    spacing=0,
+                ),
+                border=ft.border.all(2, ft.Colors.GREY_300),
+                border_radius=8,
+                padding=16,
+                width=200,
+                alignment=ft.alignment.center,
+                bgcolor=ft.Colors.GREY_100,
+            ),
+            ft.Container(
+                content=ft.Column(
+                    controls=[
+                        ft.Text("Hours This Week", size=13, color=ft.Colors.GREY_700, weight=ft.FontWeight.W_600),
+                        ft.Container(height=6),
+                        ft.Text(f"{hours_this_week:.1f}", size=32, weight=ft.FontWeight.W_400, color=ft.Colors.GREY_900),
+                    ],
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    spacing=0,
+                ),
+                border=ft.border.all(2, ft.Colors.GREY_300),
+                border_radius=8,
+                padding=16,
+                width=200,
+                alignment=ft.alignment.center,
+                bgcolor=ft.Colors.GREY_100,
+            ),
+            ft.Container(
+                content=ft.Column(
+                    controls=[
+                        ft.Text("Completion Rate", size=13, color=ft.Colors.GREY_700, weight=ft.FontWeight.W_600),
+                        ft.Container(height=6),
+                        ft.Text(f"{completion_rate:.0f}%", size=32, weight=ft.FontWeight.W_400, color=ft.Colors.GREY_900),
+                    ],
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    spacing=0,
+                ),
+                border=ft.border.all(2, ft.Colors.GREY_300),
+                border_radius=8,
+                padding=16,
+                width=200,
+                alignment=ft.alignment.center,
+                bgcolor=ft.Colors.GREY_100,
             ),
         ],
+        spacing=16,
+        wrap=True,
+        alignment=ft.MainAxisAlignment.CENTER,
     )
     
     # Build responsive layout based on screen size
@@ -531,13 +541,13 @@ def DashboardPage(page: ft.Page, session: dict = None):
             return ft.Column(
                 controls=[
                     time_section,
-                    ft.Container(height=20),
+                    ft.Container(height=2),
                     time_budget_section,
-                    ft.Container(height=20),
+                    ft.Container(height=24),
                     analytics_preview,
-                    ft.Container(height=20),
+                    ft.Container(height=24),
                     upcoming_tasks_section,
-                    ft.Container(height=20),
+                    ft.Container(height=24),
                     summary_cards,
                 ],
                 scroll=ft.ScrollMode.AUTO,
@@ -554,19 +564,17 @@ def DashboardPage(page: ft.Page, session: dict = None):
                             ft.Column(
                                 controls=[
                                     time_section,
-                                    ft.Container(height=20),
                                     upcoming_tasks_section,
                                 ],
                                 expand=1,
                             ),
                             
-                            ft.Container(width=20),
+                            ft.Container(width=24),
                             
                             # Right column
                             ft.Column(
                                 controls=[
                                     analytics_preview,
-                                    ft.Container(height=20),
                                     time_budget_section,
                                 ],
                                 expand=1,
@@ -575,21 +583,25 @@ def DashboardPage(page: ft.Page, session: dict = None):
                         expand=True,
                         vertical_alignment=ft.CrossAxisAlignment.START,
                     ),
-                    
+
                     # Bottom section with summary cards
-                    ft.Container(height=20),
-                    summary_cards,
+                    ft.Container(height=12),
+                    ft.Container(
+                        content=summary_cards,
+                        alignment=ft.alignment.center,
+                    ),
                 ],
                 scroll=ft.ScrollMode.AUTO,
             )
     
     dashboard_container = ft.Container(
         content=build_layout(),
-        padding=20,
+        padding=24,
         expand=True,
+        bgcolor=ft.Colors.GREY_50,
     )
     
-    # Add window resize listener to rebuild layout
+    # Add window resize listener
     def on_window_resize(e=None):
         dashboard_container.content = build_layout()
         page.update()

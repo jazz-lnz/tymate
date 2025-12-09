@@ -47,18 +47,21 @@ python main.py
 
 #### Remove existing database (if needed)
 ```
-# del data\tymate.db
+del data\tymate.db
 ```
 
-### Database Test
+
 ```
+# Database Test
 python -m tests.test_database
-```
-### Onboarding Feature Test
-```
+
+# Onboarding Feature Test
 python -m tests.test_onboarding
-```
-### Authentication Test
-```
+
+# Authentication Test
 python -m tests.test_auth
+
+# Run app with Sample Database (to view Tasks Page)
+python -m tests.generate_sample_db
+python main.py      # use generated test credentials 
 ```

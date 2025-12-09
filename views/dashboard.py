@@ -318,7 +318,7 @@ def DashboardPage(page: ft.Page, session: dict = None):
                         alignment=ft.MainAxisAlignment.SPACE_AROUND,
                         vertical_alignment=ft.CrossAxisAlignment.END,
                     ),
-                    height=150,
+                    height=280,
                     padding=10,
                 ),
                 ft.Row(

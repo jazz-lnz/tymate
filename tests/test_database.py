@@ -81,36 +81,39 @@ def test_database():
             {
                 "user_id": jessica['id'],
                 "title": "Complete CS 319 Project",
+                "source": "CS 319",
                 "description": "Implement RBAC and security features",
                 "category": "School",
-                "priority": "High",
+                "date_given": "2025-12-01",
+                "date_due": "2025-12-10",
                 "status": "In Progress",
                 "estimated_time": 20.0,
-                "due_date": "2025-12-10",
                 "created_at": datetime.now().isoformat(),
                 "updated_at": datetime.now().isoformat(),
             },
             {
                 "user_id": jessica['id'],
                 "title": "Work Shift - Coffee Shop",
+                "source": "Coffee Shop",
                 "description": "Monday evening shift",
                 "category": "Work",
-                "priority": "Medium",
+                "date_given": "2025-12-08",
+                "date_due": "2025-12-09",
                 "status": "Not Started",
                 "estimated_time": 4.0,
-                "due_date": "2025-12-09",
                 "created_at": datetime.now().isoformat(),
                 "updated_at": datetime.now().isoformat(),
             },
             {
                 "user_id": jessica['id'],
                 "title": "Study for Finals",
+                "source": "University",
                 "description": "Review chapters 1-10",
                 "category": "School",
-                "priority": "High",
+                "date_given": "2025-12-08",
+                "date_due": "2025-12-15",
                 "status": "Not Started",
                 "estimated_time": 15.0,
-                "due_date": "2025-12-15",
                 "created_at": datetime.now().isoformat(),
                 "updated_at": datetime.now().isoformat(),
             },
@@ -124,12 +127,12 @@ def test_database():
     print("\nTEST 4: Fetching jessica's tasks...")
     
     tasks = db.fetch_all(
-        "SELECT id, title, category, priority, status, due_date FROM tasks WHERE user_id = ?",
+        "SELECT id, title, category, status, date_due FROM tasks WHERE user_id = ?",
         (jessica['id'],)
     )
     print(f"Found {len(tasks)} tasks for jessica:")
     for task in tasks:
-        print(f"  - [{task['status']}] {task['title']} (Due: {task['due_date']})")
+        print(f"  - [{task['status']}] {task['title']} (Due: {task['date_due']})")
     
     # ==================== TEST 5: Log Time ====================
     print("\nTEST 5: Logging work hours...")

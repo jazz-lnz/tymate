@@ -1,6 +1,6 @@
 """
-TYMATE Onboarding View
-Visual wizard for time budget setup - SEE IT WORKING!
+TYMATE Onboarding View - SIMPLIFIED
+Visual wizard for time budget setup (without work questions)
 """
 
 import flet as ft
@@ -8,11 +8,12 @@ from state.onboarding_manager import OnboardingManager
 
 def OnboardingPage(page: ft.Page, on_complete, session: dict):
     """
-    Onboarding wizard with multiple steps
+    Simplified onboarding wizard - 3 steps only
     
     Args:
         page: Flet page
         on_complete: Callback function when onboarding is done
+        session: Session data with user info
     """
     
     manager = OnboardingManager()
@@ -26,7 +27,7 @@ def OnboardingPage(page: ft.Page, on_complete, session: dict):
         "work_days_per_week": 0,
     }
     
-    current_step = ft.Text("Step 1 of 5", size=12, color=ft.Colors.GREY_600)
+    current_step = ft.Text("Step 1 of 3", size=12, color=ft.Colors.GREY_600)
     
     # ==================== STEP 1: Sleep Hours ====================
     def build_step_1():
@@ -137,135 +138,15 @@ def OnboardingPage(page: ft.Page, on_complete, session: dict):
             padding=40,
         )
     
-    # ==================== STEP 3: Work Status ====================
+    # ==================== STEP 3: Summary ====================
     def build_step_3():
-        def select_yes(e):
-            onboarding_data["has_work"] = True
-            show_step(4)
-        
-        def select_no(e):
-            onboarding_data["has_work"] = False
-            show_step(5)  # Skip step 4, go to summary
-        
-        return ft.Container(
-            content=ft.Column(
-                controls=[
-                    ft.Text("Are you a working student?", size=28, weight=ft.FontWeight.BOLD),
-                    ft.Container(height=50),
-                    ft.Row(
-                        controls=[
-                            ft.Container(
-                                content=ft.Column(
-                                    controls=[
-                                        ft.Icon(ft.Icons.WORK, size=50, color=ft.Colors.BLUE_400),
-                                        ft.Container(height=10),
-                                        ft.Text("YES", size=20, weight=ft.FontWeight.BOLD),
-                                        ft.Text("I have a job", size=14, color=ft.Colors.GREY_600),
-                                    ],
-                                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                                ),
-                                bgcolor=ft.Colors.BLUE_50,
-                                border=ft.border.all(2, ft.Colors.BLUE_400),
-                                border_radius=10,
-                                padding=40,
-                                width=200,
-                                height=200,
-                                on_click=select_yes,
-                                ink=True,
-                            ),
-                            ft.Container(width=40),
-                            ft.Container(
-                                content=ft.Column(
-                                    controls=[
-                                        ft.Icon(ft.Icons.SCHOOL, size=50, color=ft.Colors.GREEN_400),
-                                        ft.Container(height=10),
-                                        ft.Text("NO", size=20, weight=ft.FontWeight.BOLD),
-                                        ft.Text("Student only", size=14, color=ft.Colors.GREY_600),
-                                    ],
-                                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                                ),
-                                bgcolor=ft.Colors.GREEN_50,
-                                border=ft.border.all(2, ft.Colors.GREEN_400),
-                                border_radius=10,
-                                padding=40,
-                                width=200,
-                                height=200,
-                                on_click=select_no,
-                                ink=True,
-                            ),
-                        ],
-                        alignment=ft.MainAxisAlignment.CENTER,
-                    ),
-                    ft.Container(height=40),
-                    ft.TextButton("← Back", on_click=lambda e: show_step(2)),
-                ],
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            ),
-            padding=40,
-        )
-    
-    # ==================== STEP 4: Work Details ====================
-    def build_step_4():
-        work_hours_field = ft.TextField(
-            label="Hours per week",
-            value="20",
-            width=200,
-            keyboard_type=ft.KeyboardType.NUMBER,
-        )
-        
-        work_days_field = ft.TextField(
-            label="Days per week",
-            value="4",
-            width=200,
-            keyboard_type=ft.KeyboardType.NUMBER,
-        )
-        
-        def save_work_info(e):
-            onboarding_data["work_hours_per_week"] = float(work_hours_field.value or 0)
-            onboarding_data["work_days_per_week"] = int(work_days_field.value or 0)
-            show_step(5)
-        
-        return ft.Container(
-            content=ft.Column(
-                controls=[
-                    ft.Text("Tell us about your work", size=28, weight=ft.FontWeight.BOLD),
-                    ft.Container(height=30),
-                    ft.Text("This helps us calculate your available time", size=14, color=ft.Colors.GREY_600),
-                    ft.Container(height=40),
-                    work_hours_field,
-                    ft.Container(height=20),
-                    work_days_field,
-                    ft.Container(height=40),
-                    ft.Row(
-                        controls=[
-                            ft.TextButton("← Back", on_click=lambda e: show_step(3)),
-                            ft.Container(width=20),
-                            ft.ElevatedButton(
-                                "Next",
-                                on_click=save_work_info,
-                                style=ft.ButtonStyle(
-                                    bgcolor=ft.Colors.BLUE_400,
-                                    color=ft.Colors.WHITE,
-                                ),
-                                width=200,
-                                height=50,
-                            ),
-                        ],
-                    ),
-                ],
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            ),
-            padding=40,
-        )
-    
-    # ==================== STEP 5: Summary ====================
-    def build_step_5():
         # Calculate budget
         budget = manager.calculate_time_budget(
             sleep_hours=onboarding_data["sleep_hours"],
-            has_work=onboarding_data["has_work"],
-            work_hours_per_week=onboarding_data["work_hours_per_week"],
-            work_days_per_week=onboarding_data["work_days_per_week"],
+            has_work=False,
+            work_hours_per_week=0,
+            work_days_per_week=0,
+            wake_time=onboarding_data["wake_time"],
         )
         
         # Recommended study goal
@@ -291,9 +172,9 @@ def OnboardingPage(page: ft.Page, on_complete, session: dict):
                 user_id=user_id,
                 sleep_hours=onboarding_data["sleep_hours"],
                 wake_time=onboarding_data["wake_time"],
-                has_work=onboarding_data["has_work"],
-                work_hours_per_week=onboarding_data["work_hours_per_week"],
-                work_days_per_week=onboarding_data["work_days_per_week"],
+                has_work=False,
+                work_hours_per_week=0,
+                work_days_per_week=0,
                 study_goal_hours_per_day=study_goal
             )
             
@@ -329,13 +210,6 @@ def OnboardingPage(page: ft.Page, on_complete, session: dict):
                                     controls=[
                                         ft.Text("Sleep:", size=14),
                                         ft.Text(f"{budget['sleep_hours_per_day']} hours", size=14),
-                                    ],
-                                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                                ),
-                                ft.Row(
-                                    controls=[
-                                        ft.Text("Work (avg):", size=14),
-                                        ft.Text(f"{budget['work_hours_per_day']:.1f} hours", size=14),
                                     ],
                                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                                 ),
@@ -390,12 +264,13 @@ def OnboardingPage(page: ft.Page, on_complete, session: dict):
                     ),
                     
                     ft.Container(height=30),
+                    error_msg,
                     ft.Text("You can adjust this later in Settings!", size=12, color=ft.Colors.GREY_600),
                     ft.Container(height=20),
                     
                     ft.Row(
                         controls=[
-                            ft.TextButton("← Back", on_click=lambda e: show_step(4 if onboarding_data["has_work"] else 3)),
+                            ft.TextButton("← Back", on_click=lambda e: show_step(2)),
                             ft.Container(width=20),
                             ft.ElevatedButton(
                                 "Start Using TYMATE",
@@ -419,7 +294,7 @@ def OnboardingPage(page: ft.Page, on_complete, session: dict):
     step_content = ft.Container()
     
     def show_step(step_num):
-        current_step.value = f"Step {step_num} of 5"
+        current_step.value = f"Step {step_num} of 3"
         
         if step_num == 1:
             step_content.content = build_step_1()
@@ -427,10 +302,6 @@ def OnboardingPage(page: ft.Page, on_complete, session: dict):
             step_content.content = build_step_2()
         elif step_num == 3:
             step_content.content = build_step_3()
-        elif step_num == 4:
-            step_content.content = build_step_4()
-        elif step_num == 5:
-            step_content.content = build_step_5()
         
         page.update()
     

@@ -306,6 +306,44 @@ class OnboardingManager:
         
         return result
     
+    def get_time_spent_this_week(self, user_id: int) -> float:
+        """
+        Calculate total hours logged this week
+        Uses actual_time from completed tasks as fallback when time_logs is empty
+        
+        Args:
+            user_id: User ID
+            
+        Returns:
+            Total hours spent this week
+        """
+        # Get start of week (Monday)
+        today = datetime.now().date()
+        start_of_week = today - timedelta(days=today.weekday())
+        
+        # Try time_logs first
+        result = self.db.fetch_one("""
+            SELECT SUM(hours) as total_hours
+            FROM time_logs
+            WHERE user_id = ?
+            AND date >= ?
+        """, (user_id, start_of_week.isoformat()))
+        
+        if result and result["total_hours"]:
+            return result["total_hours"]
+        
+        # Fallback: sum actual_time from tasks completed this week
+        task_hours = self.db.fetch_one("""
+            SELECT SUM(actual_time) as total_hours
+            FROM tasks
+            WHERE user_id = ?
+            AND DATE(completed_at) >= ?
+            AND actual_time IS NOT NULL
+            AND is_deleted = 0
+        """, (user_id, start_of_week.isoformat()))
+        
+        return task_hours["total_hours"] if task_hours and task_hours["total_hours"] else 0.0
+    
     def get_remaining_budget(self, user_id: int, current_time: Optional[datetime] = None) -> Dict[str, float]:
         """
         Calculate remaining time budget for today with REAL-TIME AWARENESS

@@ -7,6 +7,7 @@ from views.log_hours import LogHoursPage
 from views.settings import SettingsPage
 from views.onboarding import OnboardingPage
 from views.admin import AdminPage
+from views.analytics import AnalyticsPage
 
 def main(page: ft.Page):
     """
@@ -56,7 +57,7 @@ def main(page: ft.Page):
         
         # Swap content inside main_content without removing navbar
         if page.route in ("/", "/dashboard"):
-            main_content.content = DashboardPage(page)   # returns a Container
+            main_content.content = DashboardPage(page, session)   # returns a Container
         elif page.route == "/tasks":
             main_content.content = TasksPage(page, session)
         elif page.route == "/log_hours":
@@ -65,6 +66,8 @@ def main(page: ft.Page):
             main_content.content = SettingsPage(page, session)
         elif page.route == "/admin":
             main_content.content = AdminPage(page, session)
+        elif page.route == "/analytics":
+            main_content.content = AnalyticsPage(page, session)
         elif page.route == "/login":
             main_content.content = LoginPage(page, session)
         elif page.route == "/onboarding":
@@ -85,7 +88,7 @@ def main(page: ft.Page):
                 session
             )
         else:
-            main_content.content = DashboardPage(page)
+            main_content.content = DashboardPage(page, session)
 
         page.update()
     

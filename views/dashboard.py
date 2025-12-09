@@ -182,15 +182,10 @@ def DashboardPage(page: ft.Page, session: dict = None):
     thread = threading.Thread(target=update_time, daemon=True)
     thread.start()
     
-    # Sample upcoming tasks data
-    # TODO: Get from database
-    upcoming_tasks = [
-        {"title": "Wireframe", "due_date": "Nov. 17, 2025"},
-        {"title": "App Dev - LT", "due_date": "Nov. 17, 2025"},
-        {"title": "A&O - LT", "due_date": "Nov. 17, 2025"},
-        {"title": "A&O - Project Checking", "due_date": "Nov. 17, 2025"},
-        {"title": "InfoAssurance - Project", "due_date": "Nov. 17, 2025"},
-    ]
+    # Get upcoming tasks from database
+    from state.task_manager import TaskManager
+    task_manager = TaskManager()
+    upcoming_tasks = task_manager.get_upcoming_tasks(user_id) if user_id else []
     
     # Create time display section
     time_section = ft.Container(
@@ -212,8 +207,36 @@ def DashboardPage(page: ft.Page, session: dict = None):
     def is_mobile():
         return page.window.width < 768
     
-    # Create upcoming tasks list using TaskCard
-    task_items = [TaskCard(task["title"], task["due_date"]) for task in upcoming_tasks]
+    # Create task items - custom inline display
+    task_items = []
+    for task in upcoming_tasks:
+        # date_due is stored as string (YYYY-MM-DD), convert for display
+        if task.date_due:
+            try:
+                due_date = datetime.strptime(task.date_due, "%Y-%m-%d")
+                due_str = due_date.strftime("%b %d, %Y")
+            except:
+                due_str = task.date_due
+        else:
+            due_str = "No due date"
+            
+        task_items.append(
+            ft.Container(
+                content=ft.Column(
+                    controls=[
+                        ft.Text(task.title, size=14, weight=ft.FontWeight.W_500, color=ft.Colors.GREY_900),
+                        ft.Text(f"Due: {due_str}", size=12, color=ft.Colors.GREY_600),
+                    ],
+                    spacing=2,
+                ),
+                width=600,
+                padding=12,
+                border_radius=6,
+                bgcolor=ft.Colors.WHITE,
+                border=ft.border.all(1, ft.Colors.GREY_300),
+                margin=ft.margin.only(bottom=8),
+            )
+        )
 
     upcoming_tasks_section = ft.Container(
         content=ft.Column(
@@ -240,32 +263,46 @@ def DashboardPage(page: ft.Page, session: dict = None):
         expand=True,
     )
     
-    # Create simple bar chart for analytics
-    bar_heights = [120, 40, 0, 0, 0, 0, 0]
-    days = ["Mon", "Tues", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    # Get real analytics data for chart
+    from services.analytics_engine import AnalyticsEngine
+    analytics_engine = AnalyticsEngine()
+    chart_data = analytics_engine.get_dashboard_chart_data(user_id, days=7)["daily_data"] if user_id else []
     
+    # Create bar chart with real data
+    days = []
     bars = []
-    for height in bar_heights:
+    max_value = max([d["tasks"] for d in chart_data]) if chart_data else 1
+    
+    for day_data in chart_data:
+        days.append(day_data["date"])
+        height = (day_data["tasks"] / max_value * 120) if max_value > 0 else 0
         bars.append(
             ft.Container(
                 width=50,
-                height=height,
+                height=max(height, 2),
                 bgcolor=ft.Colors.GREY_600,
                 border_radius=2,
+                tooltip=f"{day_data['tasks']} tasks, {day_data['hours']}h",
             )
         )
+    
+    # Handle navigation to analytics page
+    def go_to_analytics(e):
+        page.route = "/analytics"
+        page.update()
     
     analytics_preview = ft.Container(
         content=ft.Column(
             controls=[
                 ft.Row(
                     controls=[
-                        ft.Text("Analytics Preview", size=18, weight=ft.FontWeight.W_600, color=ft.Colors.GREY_900),
+                        ft.Text("Overview of the Past Week", size=18, weight=ft.FontWeight.W_600, color=ft.Colors.GREY_900),
                         ft.IconButton(
                             icon=ft.Icons.OPEN_IN_FULL_OUTLINED,
                             icon_size=20,
                             icon_color=ft.Colors.GREY_700,
                             tooltip="View full analytics",
+                            on_click=go_to_analytics,
                         ),
                     ],
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
@@ -277,7 +314,7 @@ def DashboardPage(page: ft.Page, session: dict = None):
                 ),
                 ft.Container(
                     content=ft.Row(
-                        controls=bars,
+                        controls=bars if bars else [ft.Text("Complete tasks to see analytics", size=12, color=ft.Colors.GREY_600)],
                         alignment=ft.MainAxisAlignment.SPACE_AROUND,
                         vertical_alignment=ft.CrossAxisAlignment.END,
                     ),
@@ -285,7 +322,7 @@ def DashboardPage(page: ft.Page, session: dict = None):
                     padding=10,
                 ),
                 ft.Row(
-                    controls=[ft.Text(day, size=11, color=ft.Colors.GREY_600) for day in days],
+                    controls=[ft.Text(day, size=11, color=ft.Colors.GREY_600) for day in days] if days else [],
                     alignment=ft.MainAxisAlignment.SPACE_AROUND,
                 ),
             ],
@@ -297,40 +334,10 @@ def DashboardPage(page: ft.Page, session: dict = None):
         bgcolor=ft.Colors.WHITE,
     )
     
-    # Progress bar text
-    study_progress_text = ft.Text(
-        f"{time_spent_today['Study']:.1f} / {study_goal:.1f} hours",
-        size=14,
-        color=ft.Colors.GREY_900,
-        weight=ft.FontWeight.W_600,
-    )
-    
-    work_progress_text = ft.Text(
-        f"{time_spent_today['Work']:.1f} / {budget.get('work_hours_per_day', 0):.1f} hours",
-        size=14,
-        color=ft.Colors.GREY_900,
-        weight=ft.FontWeight.W_600,
-    )
-    
-    # Remaining hours message
-    if study_remaining <= 0:
-        if time_spent_today.get("Study", 0) >= study_goal:
-            remaining_message = "Study goal completed! Great job!"
-            message_color = ft.Colors.GREEN_700
-        else:
-            remaining_message = "No time left today to reach your study goal"
-            message_color = ft.Colors.RED_700
-    elif study_remaining < study_remaining_absolute:
-        remaining_message = f"{study_remaining:.1f} hours remaining (limited by bedtime at {budget.get('bedtime', '23:00')})"
-        message_color = ft.Colors.ORANGE_700
-    else:
-        remaining_message = f"{study_remaining:.1f} hours remaining to meet your study goal."
-        message_color = ft.Colors.GREY_700
-    
     time_budget_section = ft.Container(
         content=ft.Column(
             controls=[
-                ft.Text("Today's Time Budget", size=18, weight=ft.FontWeight.W_600, color=ft.Colors.GREY_900),
+                ft.Text("Time Budget Information", size=18, weight=ft.FontWeight.W_600, color=ft.Colors.GREY_900),
                 ft.Container(
                     height=2,
                     bgcolor=ft.Colors.GREY_400,
@@ -396,51 +403,6 @@ def DashboardPage(page: ft.Page, session: dict = None):
                 ),
                 
                 ft.Container(height=16),
-                
-                # Study time progress
-                ft.Row(
-                    controls=[
-                        ft.Text("Study Time", size=14, color=ft.Colors.GREY_700, weight=ft.FontWeight.W_500),
-                        study_progress_text,
-                    ],
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                ),
-                ft.Container(height=8),
-                ft.ProgressBar(
-                    value=study_progress,
-                    color=ft.Colors.GREY_800,
-                    bgcolor=ft.Colors.GREY_300,
-                    height=10,
-                ),
-                
-                ft.Container(height=16),
-                
-                # Work time progress if applicable
-                ft.Row(
-                    controls=[
-                        ft.Text("WorkTime", size=14, color=ft.Colors.GREY_700, weight=ft.FontWeight.W_500),
-                        work_progress_text,
-                    ],
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                ),
-                ft.Container(height=8),
-                ft.ProgressBar(
-                    value=work_progress,
-                    color=ft.Colors.GREY_800,
-                    bgcolor=ft.Colors.GREY_300,
-                    height=10,
-                ),
-                
-                ft.Container(height=20),
-                
-                # Remaining hours message
-                ft.Text(
-                    remaining_message,
-                    size=13,
-                    color=message_color,
-                    weight=ft.FontWeight.W_600,
-                    text_align=ft.TextAlign.CENTER,
-                ),
             ],
             horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
             spacing=0,
@@ -452,11 +414,11 @@ def DashboardPage(page: ft.Page, session: dict = None):
         expand=True,
     )
     
-    # Summary Cards
+    # Summary Cards - Get real data from database
     total_tasks_count = len(upcoming_tasks)
-    completed_today_count = 0
-    hours_this_week = time_spent_today["total"] * 3
-    completion_rate = 0.0
+    completed_today_count = task_manager.get_tasks_completed_today(user_id) if user_id else 0
+    hours_this_week = onboarding_mgr.get_time_spent_this_week(user_id) if user_id else 0.0
+    completion_rate = task_manager.get_completion_rate(user_id) if user_id else 0.0
     
     summary_cards = ft.Row(
         controls=[

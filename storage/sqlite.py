@@ -2,6 +2,7 @@ import sqlite3
 import os
 from datetime import datetime
 from typing import List, Dict, Optional, Any
+import threading
 
 class Database:
     """ TYMATE SQLite Database Handler """
@@ -19,6 +20,7 @@ class Database:
         self.db_path = db_path
         self.connection = None
         self.cursor = None
+        self._lock = threading.Lock()  # Lock for thread-safe database access
         
         # Connect and initialize tables
         self.connect()
@@ -314,15 +316,17 @@ class Database:
     
     def fetch_one(self, query: str, params: tuple = ()) -> Optional[Dict[str, Any]]:
         """Execute query and fetch one result"""
-        self.cursor.execute(query, params)
-        row = self.cursor.fetchone()
-        return dict(row) if row else None
+        with self._lock:
+            self.cursor.execute(query, params)
+            row = self.cursor.fetchone()
+            return dict(row) if row else None
     
     def fetch_all(self, query: str, params: tuple = ()) -> List[Dict[str, Any]]:
         """Execute query and fetch all results"""
-        self.cursor.execute(query, params)
-        rows = self.cursor.fetchall()
-        return [dict(row) for row in rows]
+        with self._lock:
+            self.cursor.execute(query, params)
+            rows = self.cursor.fetchall()
+            return [dict(row) for row in rows]
     
     def insert(self, table: str, data: Dict[str, Any]) -> int:
         """Insert a new record into table"""
@@ -330,9 +334,10 @@ class Database:
         placeholders = ', '.join(['?' for _ in data])
         query = f"INSERT INTO {table} ({columns}) VALUES ({placeholders})"
         
-        self.cursor.execute(query, tuple(data.values()))
-        self.connection.commit()
-        return self.cursor.lastrowid
+        with self._lock:
+            self.cursor.execute(query, tuple(data.values()))
+            self.connection.commit()
+            return self.cursor.lastrowid
     
     def update(self, table: str, data: Dict[str, Any], where: str, where_params: tuple = ()) -> int:
         """Update records in table"""
@@ -340,17 +345,19 @@ class Database:
         query = f"UPDATE {table} SET {set_clause} WHERE {where}"
         
         params = tuple(data.values()) + where_params
-        self.cursor.execute(query, params)
-        self.connection.commit()
-        return self.cursor.rowcount
+        with self._lock:
+            self.cursor.execute(query, params)
+            self.connection.commit()
+            return self.cursor.rowcount
     
     def delete(self, table: str, where: str, where_params: tuple = ()) -> int:
         """Delete records from table"""
         query = f"DELETE FROM {table} WHERE {where}"
         
-        self.cursor.execute(query, where_params)
-        self.connection.commit()
-        return self.cursor.rowcount
+        with self._lock:
+            self.cursor.execute(query, where_params)
+            self.connection.commit()
+            return self.cursor.rowcount
     
     def get_by_id(self, table: str, record_id: int) -> Optional[Dict[str, Any]]:
         """Get a single record by ID"""

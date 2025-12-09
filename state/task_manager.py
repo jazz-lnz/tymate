@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional
 from storage.sqlite import get_database
 from models.task import Task
@@ -135,8 +135,8 @@ class TaskManager:
             AND is_deleted = 0 
             AND status != 'Completed'
             ORDER BY 
-                CASE WHEN due_date IS NULL THEN 1 ELSE 0 END,
-                due_date ASC
+                CASE WHEN date_due IS NULL THEN 1 ELSE 0 END,
+                date_due ASC
             LIMIT ?
         """, (user_id, limit))
         
@@ -167,6 +167,46 @@ class TaskManager:
                 stats["overdue"] += 1
         
         return stats
+    
+    def get_tasks_completed_today(self, user_id: int) -> int:
+        """Get count of tasks completed today"""
+        today = datetime.now().date().isoformat()
+        result = self.db.fetch_one("""
+            SELECT COUNT(*) as count
+            FROM tasks
+            WHERE user_id = ?
+            AND DATE(completed_at) = ?
+            AND is_deleted = 0
+        """, (user_id, today))
+        return result["count"] if result else 0
+    
+    def get_completion_rate(self, user_id: int, days: int = 30) -> float:
+        """Get completion rate percentage for last N days"""
+        cutoff_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+        
+        # Get total tasks created in period
+        total = self.db.fetch_one("""
+            SELECT COUNT(*) as count
+            FROM tasks
+            WHERE user_id = ?
+            AND date_given >= ?
+            AND is_deleted = 0
+        """, (user_id, cutoff_date))
+        
+        # Get completed tasks in period
+        completed = self.db.fetch_one("""
+            SELECT COUNT(*) as count
+            FROM tasks
+            WHERE user_id = ?
+            AND date_given >= ?
+            AND status = 'Completed'
+            AND is_deleted = 0
+        """, (user_id, cutoff_date))
+        
+        if not total or total["count"] == 0:
+            return 0.0
+        
+        return round((completed["count"] / total["count"]) * 100, 1)
     
     # ==================== UPDATE ====================
     

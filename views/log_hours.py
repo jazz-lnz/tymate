@@ -4,8 +4,8 @@ def LogHoursPage(page: ft.Page):
     return ft.Container(
         content=ft.Column(
             controls=[
-                ft.Text("Log Hours", size=24, weight=ft.FontWeight.BOLD),
-                ft.Text("This is a placeholder for the Log Hours page."),
+                ft.Text("Coming Soon!", size=24, weight=ft.FontWeight.BOLD),
+                ft.Text("Look forward to logging your hours ;)"),
             ],
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             alignment=ft.MainAxisAlignment.CENTER,

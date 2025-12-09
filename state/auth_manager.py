@@ -329,6 +329,28 @@ class AuthManager:
         for field in forbidden_fields:
             if field in updates:
                 return False, f"Cannot update field: {field}"
+
+        # Prevent duplicate usernames and validate length when changing username
+        if "username" in updates:
+            new_username = updates.get("username")
+
+            if new_username is None or new_username.strip() == "":
+                return False, "Username cannot be empty"
+
+            new_username = new_username.strip()
+
+            if len(new_username) < 3:
+                return False, "Username must be at least 3 characters"
+
+            existing = self.db.fetch_one(
+                "SELECT id FROM users WHERE username = ? AND id != ?",
+                (new_username, user_id),
+            )
+
+            if existing:
+                return False, "Username already exists"
+
+            updates["username"] = new_username
         
         # Add updated_at timestamp
         updates["updated_at"] = datetime.now().isoformat()

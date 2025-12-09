@@ -181,6 +181,9 @@ def TasksPage(page: ft.Page, session: dict = None):
                 or q in t.category.lower()
             ]
 
+        # Sort tasks by date_due (earliest first)
+        tasks.sort(key=lambda t: t.date_due if t.date_due else "9999-12-31")
+
         # Clear and rebuild UI
         task_list_container.controls.clear()
 

@@ -58,7 +58,7 @@ def main(page: ft.Page):
         if page.route in ("/", "/dashboard"):
             main_content.content = DashboardPage(page)   # returns a Container
         elif page.route == "/tasks":
-            main_content.content = TasksPage(page)
+            main_content.content = TasksPage(page, session)
         elif page.route == "/log_hours":
             main_content.content = LogHoursPage(page)
         elif page.route == "/settings":

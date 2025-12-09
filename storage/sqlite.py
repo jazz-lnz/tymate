@@ -125,19 +125,20 @@ class Database:
         
         # ==================== SRS: Task Management ====================
         
-        # Tasks table (FR-001 to FR-005)
+        # Tasks table (FR-001 to FR-005) - Invoice Style
         self.cursor.execute("""
             CREATE TABLE IF NOT EXISTS tasks (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER NOT NULL,
                 title TEXT NOT NULL,
+                source TEXT NOT NULL,
+                category TEXT NOT NULL,
+                date_given TEXT NOT NULL,
+                date_due TEXT NOT NULL,
                 description TEXT,
-                category TEXT,
-                priority TEXT DEFAULT 'Medium',
-                status TEXT DEFAULT 'Not Started',
                 estimated_time REAL,
                 actual_time REAL,
-                due_date TEXT,
+                status TEXT DEFAULT 'Not Started',
                 completed_at TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,

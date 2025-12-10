@@ -59,22 +59,25 @@ class TaskManager:
             return False, f"Failed to create task: {str(e)}", None
     
     # ==================== READ ====================
-    
-    def get_task(self, task_id: int) -> Optional[Task]:
+
+    def get_task(self, task_id: int, include_deleted: bool = False) -> Optional[Task]:
         """
         Get a single task by ID
         
         Args:
             task_id: Task ID
-            
+            include_deleted: when True, return task even if soft-deleted
+
         Returns:
             Task object or None
         """
-        task_data = self.db.fetch_one(
-            "SELECT * FROM tasks WHERE id = ? AND is_deleted = 0",
-            (task_id,)
-        )
-        
+        if include_deleted:
+            query = "SELECT * FROM tasks WHERE id = ?"
+        else:
+            query = "SELECT * FROM tasks WHERE id = ? AND is_deleted = 0"
+
+        task_data = self.db.fetch_one(query, (task_id,))
+
         if task_data:
             return Task.from_dict(task_data)
         return None
@@ -130,11 +133,11 @@ class TaskManager:
     def get_upcoming_tasks(self, user_id: int, limit: int = 5) -> List[Task]:
         """Get upcoming tasks (not completed, sorted by due date)"""
         tasks = self.db.fetch_all("""
-            SELECT * FROM tasks 
-            WHERE user_id = ? 
-            AND is_deleted = 0 
+            SELECT * FROM tasks
+            WHERE user_id = ?
+            AND is_deleted = 0
             AND status != 'Completed'
-            ORDER BY 
+            ORDER BY
                 CASE WHEN date_due IS NULL THEN 1 ELSE 0 END,
                 date_due ASC
             LIMIT ?
@@ -225,9 +228,9 @@ class TaskManager:
         Returns:
             Tuple of (success: bool, message: str)
         """
-        
-        # Check task exists
-        task = self.get_task(task_id)
+
+        # Check task exists (allow soft-deleted in case caller wants to restore/update)
+        task = self.get_task(task_id, include_deleted=True)
         if not task:
             return False, "Task not found"
         
@@ -253,11 +256,8 @@ class TaskManager:
         if actual_time is not None:
             updates["actual_time"] = actual_time
 
-        return self.update_task(
-            task_id,
-            **updates
-        )
-    
+        return self.update_task(task_id, **updates)
+
     def mark_in_progress(self, task_id: int) -> tuple[bool, str]:
         """Mark a task as in progress"""
         return self.update_task(task_id, status="In Progress")

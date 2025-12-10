@@ -161,15 +161,11 @@ def TasksPage(page: ft.Page, session: dict = None):
             current_filter = filter_status or "All"
 
             # Load all tasks from your TaskManager
-            tasks = task_manager.get_user_tasks(user_id, include_deleted=True)
-            
+            tasks = task_manager.get_user_tasks(user_id, include_deleted=False)
+
         # Apply status filtering
         if current_filter != "All":
-            # if Removed Task
-            if current_filter == "Deleted":
-                tasks = [t for t in tasks if t.is_deleted]
-            else:
-                tasks = [t for t in tasks if t.status == current_filter]
+            tasks = [t for t in tasks if t.status == current_filter]
 
         # Apply search filter
         if search_query.strip() != "":
@@ -279,6 +275,14 @@ def TasksPage(page: ft.Page, session: dict = None):
                                     weight=ft.FontWeight.W_500,
                                 ),
                                 ft.Container(expand=True),  # Spacer to push buttons to right
+                                ft.IconButton(
+                                    icon=ft.Icons.PLAY_ARROW,
+                                    icon_size=16,
+                                    icon_color=ft.Colors.BLUE_600,
+                                    on_click=lambda e, t=task: set_in_progress(t),
+                                    tooltip="Mark in progress",
+                                    visible=not task.is_deleted and task.status not in ("In Progress", "Completed"),
+                                ),
                                 ft.IconButton(
                                     icon=ft.Icons.EDIT_OUTLINED,
                                     icon_size=16,
@@ -428,7 +432,17 @@ def TasksPage(page: ft.Page, session: dict = None):
                             padding=ft.padding.symmetric(horizontal=10, vertical=4),
                             border_radius=5,
                         ),
-                        
+
+                        # Start button to move to In Progress
+                        ft.IconButton(
+                            icon=ft.Icons.PLAY_ARROW,
+                            icon_size=18,
+                            icon_color=ft.Colors.BLUE_600,
+                            on_click=lambda e, t=task: set_in_progress(t),
+                            tooltip="Mark in progress",
+                            visible=not task.is_deleted and task.status not in ("In Progress", "Completed"),
+                        ),
+
                         # Time info
                         ft.Text(
                             f"Est: {task.estimated_time}h" if task.estimated_time else "—",
@@ -485,7 +499,14 @@ def TasksPage(page: ft.Page, session: dict = None):
             # Unmark as complete
             task_manager.update_task(task.id, status="Not Started")
             load_tasks(current_filter)
-    
+
+    def set_in_progress(task):
+        """Mark a task as in progress without opening the edit dialog"""
+        if task.status == "Completed":
+            return
+        task_manager.update_task(task.id, status="In Progress")
+        load_tasks(current_filter)
+
     def show_complete_dialog(task):
         """Show dialog to mark task complete and enter actual time"""
         
@@ -922,7 +943,6 @@ def TasksPage(page: ft.Page, session: dict = None):
             create_filter_tab("Not Started", "Not Started"),
             create_filter_tab("In Progress", "In Progress"),
             create_filter_tab("Completed", "Completed"),
-            create_filter_tab("Deleted", "Deleted"),
         ])
     
     # Initialize filter tabs

@@ -3,7 +3,6 @@ from datetime import datetime, timedelta
 import time
 import threading
 
-from components.task_card import TaskCard
 from state.onboarding_manager import OnboardingManager
 
 def DashboardPage(page: ft.Page, session: dict = None):

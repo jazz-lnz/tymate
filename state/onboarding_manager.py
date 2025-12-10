@@ -194,12 +194,12 @@ class OnboardingManager:
         }, "id = ?", (user_id,))
         
         # Mark onboarding as completed in settings
-        self.db.cursor.execute("""
+        self.db.execute_query("""
             INSERT OR REPLACE INTO settings (user_id, setting_key, setting_value, updated_at)
             VALUES (?, ?, ?, ?)
         """, (user_id, "onboarding_completed", "true", timestamp))
-        
-        self.db.cursor.execute("""
+
+        self.db.execute_query("""
             INSERT OR REPLACE INTO settings (user_id, setting_key, setting_value, updated_at)
             VALUES (?, ?, ?, ?)
         """, (user_id, "onboarding_date", timestamp, timestamp))

@@ -19,7 +19,6 @@ class Database:
         
         self.db_path = db_path
         self.connection = None
-        self.cursor = None
         self._lock = threading.Lock()  # Lock for thread-safe database access
         
         # Connect and initialize tables
@@ -30,8 +29,7 @@ class Database:
         """Establish database connection"""
         self.connection = sqlite3.connect(self.db_path, check_same_thread=False)
         self.connection.row_factory = sqlite3.Row  # Enable column access by name
-        self.cursor = self.connection.cursor()
-    
+
     def close(self):
         """Close database connection"""
         if self.connection:
@@ -42,11 +40,13 @@ class Database:
         Create all required database tables
         Compliant with CS 319, CSAC 3211, and SRS requirements
         """
-        
+
+        cursor = self.connection.cursor()
+
         # ==================== CS 319: RBAC & User Management ====================
         
         # Users table (CS 319: Authentication, Profile Management)
-        self.cursor.execute("""
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT UNIQUE NOT NULL,
@@ -73,7 +73,7 @@ class Database:
         """)
         
         # Roles table (CS 319: RBAC)
-        self.cursor.execute("""
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS roles (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT UNIQUE NOT NULL,
@@ -83,7 +83,7 @@ class Database:
         """)
         
         # Audit logs table (CS 319: Security Controls, Logging)
-        self.cursor.execute("""
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS audit_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER,
@@ -100,7 +100,7 @@ class Database:
         """)
         
         # Login attempts table (CS 319: Security Controls)
-        self.cursor.execute("""
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS login_attempts (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT NOT NULL,
@@ -112,7 +112,7 @@ class Database:
         """)
         
         # Sessions table (CS 319: Session Management)
-        self.cursor.execute("""
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS sessions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER NOT NULL,
@@ -128,7 +128,7 @@ class Database:
         # ==================== SRS: Task Management ====================
         
         # Tasks table (FR-001 to FR-005) - Invoice Style
-        self.cursor.execute("""
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS tasks (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER NOT NULL,
@@ -151,7 +151,7 @@ class Database:
         """)
         
         # Task tags table (FR-005: Tagging)
-        self.cursor.execute("""
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS task_tags (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 task_id INTEGER NOT NULL,
@@ -161,7 +161,7 @@ class Database:
         """)
         
         # File attachments table (FR-006: Upload Attachments)
-        self.cursor.execute("""
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS attachments (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 task_id INTEGER NOT NULL,
@@ -178,7 +178,7 @@ class Database:
         # ==================== SRS: Time Tracking ====================
         
         # Time logs table (FR-010: Work-Hour Logging)
-        self.cursor.execute("""
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS time_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER NOT NULL,
@@ -196,7 +196,7 @@ class Database:
         """)
         
         # Time budgets table (FR-009: Time Budgeting)
-        self.cursor.execute("""
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS time_budgets (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER NOT NULL,
@@ -214,7 +214,7 @@ class Database:
         # ==================== SRS: Smart Tips & Analytics ====================
         
         # Smart tips table (FR-012: Smart Tips)
-        self.cursor.execute("""
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS smart_tips (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER NOT NULL,
@@ -230,7 +230,7 @@ class Database:
         # ==================== SRS: User Settings ====================
         
         # Settings table (User Preferences)
-        self.cursor.execute("""
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS settings (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER NOT NULL,
@@ -245,7 +245,7 @@ class Database:
         # ==================== SRS: Offline Sync ====================
         
         # Sync queue table (FR-013: Offline Logging and Synchronization)
-        self.cursor.execute("""
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS sync_queue (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER NOT NULL,
@@ -263,7 +263,7 @@ class Database:
         # ==================== CSAC 3211: Research Data ====================
         
         # Usage analytics table (Research: User behavior tracking)
-        self.cursor.execute("""
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS usage_analytics (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER NOT NULL,
@@ -299,33 +299,38 @@ class Database:
                 "permissions": '["create_tasks", "view_own_analytics", "file_upload"]'
             }
         ]
-        
-        for role in roles_data:
-            self.cursor.execute(
-                "INSERT OR IGNORE INTO roles (name, description, permissions) VALUES (?, ?, ?)",
-                (role["name"], role["description"], role["permissions"])
-            )
-        
+
+        cursor = self.connection.cursor()
+        cursor.executemany(
+            "INSERT OR IGNORE INTO roles (name, description, permissions) VALUES (?, ?, ?)",
+            [(role["name"], role["description"], role["permissions"]) for role in roles_data]
+        )
+
         self.connection.commit()
     
     # ==================== Basic CRUD Operations ====================
     
     def execute_query(self, query: str, params: tuple = ()) -> sqlite3.Cursor:
         """Execute a SQL query and return cursor"""
-        return self.cursor.execute(query, params)
-    
+        with self._lock:
+            cursor = self.connection.cursor()
+            cursor.execute(query, params)
+            return cursor
+
     def fetch_one(self, query: str, params: tuple = ()) -> Optional[Dict[str, Any]]:
         """Execute query and fetch one result"""
         with self._lock:
-            self.cursor.execute(query, params)
-            row = self.cursor.fetchone()
+            cursor = self.connection.cursor()
+            cursor.execute(query, params)
+            row = cursor.fetchone()
             return dict(row) if row else None
     
     def fetch_all(self, query: str, params: tuple = ()) -> List[Dict[str, Any]]:
         """Execute query and fetch all results"""
         with self._lock:
-            self.cursor.execute(query, params)
-            rows = self.cursor.fetchall()
+            cursor = self.connection.cursor()
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
             return [dict(row) for row in rows]
     
     def insert(self, table: str, data: Dict[str, Any]) -> int:
@@ -335,10 +340,11 @@ class Database:
         query = f"INSERT INTO {table} ({columns}) VALUES ({placeholders})"
         
         with self._lock:
-            self.cursor.execute(query, tuple(data.values()))
+            cursor = self.connection.cursor()
+            cursor.execute(query, tuple(data.values()))
             self.connection.commit()
-            return self.cursor.lastrowid
-    
+            return cursor.lastrowid
+
     def update(self, table: str, data: Dict[str, Any], where: str, where_params: tuple = ()) -> int:
         """Update records in table"""
         set_clause = ', '.join([f"{key} = ?" for key in data.keys()])
@@ -346,19 +352,21 @@ class Database:
         
         params = tuple(data.values()) + where_params
         with self._lock:
-            self.cursor.execute(query, params)
+            cursor = self.connection.cursor()
+            cursor.execute(query, params)
             self.connection.commit()
-            return self.cursor.rowcount
-    
+            return cursor.rowcount
+
     def delete(self, table: str, where: str, where_params: tuple = ()) -> int:
         """Delete records from table"""
         query = f"DELETE FROM {table} WHERE {where}"
         
         with self._lock:
-            self.cursor.execute(query, where_params)
+            cursor = self.connection.cursor()
+            cursor.execute(query, where_params)
             self.connection.commit()
-            return self.cursor.rowcount
-    
+            return cursor.rowcount
+
     def get_by_id(self, table: str, record_id: int) -> Optional[Dict[str, Any]]:
         """Get a single record by ID"""
         query = f"SELECT * FROM {table} WHERE id = ?"
@@ -375,11 +383,13 @@ class Database:
     
     def commit(self):
         """Commit current transaction"""
-        self.connection.commit()
-    
+        with self._lock:
+            self.connection.commit()
+
     def rollback(self):
         """Rollback current transaction"""
-        self.connection.rollback()
+        with self._lock:
+            self.connection.rollback()
 
 
 # Singleton instance

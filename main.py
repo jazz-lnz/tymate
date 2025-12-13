@@ -1,3 +1,5 @@
+import os
+from dotenv import load_dotenv
 import flet as ft
 from components.navbar import create_navbar
 from views.dashboard import DashboardPage
@@ -107,4 +109,9 @@ def main(page: ft.Page):
 
 # Run the app
 if __name__ == "__main__":
-    ft.app(target=main)
+    # Load environment (for FLET_SECRET_KEY, DB path, etc.)
+    load_dotenv()
+
+    view_mode = os.getenv("FLET_APP_VIEW", "web").lower()
+    app_view = ft.AppView.WEB_BROWSER if view_mode == "web" else ft.AppView.FLET_APP
+    ft.app(target=main, view=app_view, assets_dir="assets")

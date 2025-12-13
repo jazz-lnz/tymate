@@ -4,12 +4,12 @@ Run this to verify your database works before UI is ready
 """
 
 from storage.sqlite import get_database
+from models.user import User
 from datetime import datetime
-import hashlib
 
 def hash_password(password):
-    """Simple password hashing for testing"""
-    return hashlib.sha256(password.encode()).hexdigest()
+    """Hash password using bcrypt (same as User model)"""
+    return User.hash_password(password)
 
 def test_database():
     """Test all database operations"""

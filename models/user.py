@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from datetime import datetime, time, timedelta
 from typing import Optional
-import hashlib
+import bcrypt
 
 @dataclass
 class User:
@@ -76,19 +76,21 @@ class User:
     @staticmethod
     def hash_password(password: str) -> str:
         """
-        Hash a password using SHA-256
+        Hash a password using bcrypt (industry standard)
         
         Args:
             password: Plain text password
             
         Returns:
-            Hashed password string
+            Hashed password string (bcrypt format)
         """
-        return hashlib.sha256(password.encode()).hexdigest()
+        salt = bcrypt.gensalt(rounds=12)
+        hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
+        return hashed.decode('utf-8')
     
     def verify_password(self, password: str) -> bool:
         """
-        Verify password matches stored hash
+        Verify password matches stored bcrypt hash
         
         Args:
             password: Plain text password to verify
@@ -96,7 +98,11 @@ class User:
         Returns:
             True if password matches, False otherwise
         """
-        return self.password_hash == self.hash_password(password)
+        try:
+            return bcrypt.checkpw(password.encode('utf-8'), self.password_hash.encode('utf-8'))
+        except (ValueError, TypeError):
+            # Handle case where hash is corrupted or invalid
+            return False
     
     @staticmethod
     def validate_password_complexity(password: str) -> tuple[bool, str]:

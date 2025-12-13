@@ -4,13 +4,13 @@ Creates realistic sample data for testing the UI
 """
 
 from storage.sqlite import get_database
+from models.user import User
 from datetime import datetime, timedelta
-import hashlib
 import random
 
 def hash_password(password):
-    """Simple password hashing"""
-    return hashlib.sha256(password.encode()).hexdigest()
+    """Hash password using bcrypt (same as User model)"""
+    return User.hash_password(password)
 
 def generate_sample_database():
     """Generate a database with realistic sample tasks"""

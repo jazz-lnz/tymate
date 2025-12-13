@@ -1,23 +1,31 @@
-import sqlite3
+try:
+    import sqlcipher3 as sqlite3
+except ImportError:
+    import sqlite3
 import os
 from datetime import datetime
 from typing import List, Dict, Optional, Any
 import threading
+from dotenv import load_dotenv
+
+# Load environment variables from .env if present
+load_dotenv()
 
 class Database:
     """ TYMATE SQLite Database Handler """
     
-    def __init__(self, db_path: str = "data/tymate.db"):
+    def __init__(self, db_path: str = None):
         """
         Initialize database connection and create tables if needed
         
         Args:
             db_path: Path to SQLite database file
         """
+        resolved_path = db_path or os.getenv("TYMATE_DB_PATH", "data/tymate.db")
         # Ensure data directory exists
-        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+        os.makedirs(os.path.dirname(resolved_path), exist_ok=True)
         
-        self.db_path = db_path
+        self.db_path = resolved_path
         self.connection = None
         self._lock = threading.Lock()  # Lock for thread-safe database access
         
@@ -26,9 +34,22 @@ class Database:
         self.create_tables()
     
     def connect(self):
-        """Establish database connection"""
+        """Establish database connection with optional encryption"""
         self.connection = sqlite3.connect(self.db_path, check_same_thread=False)
         self.connection.row_factory = sqlite3.Row  # Enable column access by name
+        
+        # Enable SQLCipher encryption if password is provided
+        db_password = os.getenv("TYMATE_DB_PASSWORD")
+        if db_password:
+            try:
+                # For sqlcipher3, set the encryption key
+                self.connection.execute(f"PRAGMA key = '{db_password}'")
+                # Verify encryption is working by accessing the database
+                self.connection.execute("SELECT 1")
+                self.connection.commit()
+            except Exception as e:
+                print(f"⚠️ Warning: Failed to enable database encryption: {e}")
+                print("Database will be created without encryption. Set TYMATE_DB_PASSWORD for encryption.")
 
     def close(self):
         """Close database connection"""
@@ -395,7 +416,7 @@ class Database:
 # Singleton instance
 _db_instance = None
 
-def get_database(db_path: str = "data/tymate.db") -> Database:
+def get_database(db_path: str = None) -> Database:
     """
     Get singleton database instance
     

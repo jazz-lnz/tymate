@@ -30,8 +30,8 @@ def create_navbar(page: ft.Page, current_route: str, session: dict, route_change
     
     # Add role-specific menu items
     if is_admin:
-        # Admin navbar - only Admin and Settings
-        nav_controls.append(
+        # Admin navbar - Admin, Audit Logs, User Activity, and Settings
+        nav_controls.extend([
             ft.TextButton(
                 "Admin",
                 style=ft.ButtonStyle(
@@ -39,8 +39,24 @@ def create_navbar(page: ft.Page, current_route: str, session: dict, route_change
                     text_style=ft.TextStyle(size=16, weight=ft.FontWeight.W_600),
                 ),
                 on_click=lambda _: navigate_to("/admin"),
-            )
-        )
+            ),
+            ft.TextButton(
+                "Activity",
+                style=ft.ButtonStyle(
+                    color=ft.Colors.ORANGE_400 if is_active("/user_activity") else ft.Colors.WHITE,
+                    text_style=ft.TextStyle(size=16, weight=ft.FontWeight.W_600),
+                ),
+                on_click=lambda _: navigate_to("/user_activity"),
+            ),
+            ft.TextButton(
+                "Audit Logs",
+                style=ft.ButtonStyle(
+                    color=ft.Colors.ORANGE_400 if is_active("/audit_logs") else ft.Colors.WHITE,
+                    text_style=ft.TextStyle(size=16, weight=ft.FontWeight.W_600),
+                ),
+                on_click=lambda _: navigate_to("/audit_logs"),
+            ),
+        ])
     else:
         # Regular user navbar - Dashboard, Tasks, Log Hours
         nav_controls.extend([

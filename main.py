@@ -8,6 +8,8 @@ from views.settings import SettingsPage
 from views.onboarding import OnboardingPage
 from views.admin import AdminPage
 from views.analytics import AnalyticsPage
+from views.audit_logs import AuditLogsPage
+from views.user_activity import UserActivityPage
 
 def main(page: ft.Page):
     """
@@ -66,6 +68,10 @@ def main(page: ft.Page):
             main_content.content = SettingsPage(page, session)
         elif page.route == "/admin":
             main_content.content = AdminPage(page, session)
+        elif page.route == "/audit_logs":
+            main_content.content = AuditLogsPage(page, session)
+        elif page.route == "/user_activity":
+            main_content.content = UserActivityPage(page, session)
         elif page.route == "/analytics":
             main_content.content = AnalyticsPage(page, session)
         elif page.route == "/login":

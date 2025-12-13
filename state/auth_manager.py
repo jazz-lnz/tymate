@@ -1,8 +1,13 @@
 from datetime import datetime, timedelta
 from typing import Optional, Dict
 import secrets
+import os
+from dotenv import load_dotenv
 from storage.sqlite import get_database
 from models.user import User
+
+# Load environment variables
+load_dotenv()
 
 class AuthManager:
     """
@@ -14,10 +19,12 @@ class AuthManager:
     - Session management with tokens
     - Failed login attempt tracking
     - Account locking after failed attempts
+    - Session inactivity timeout
     """
     
     MAX_FAILED_ATTEMPTS = 5
     SESSION_DURATION_HOURS = 24
+    SESSION_TIMEOUT_MINUTES = int(os.getenv("TYMATE_SESSION_TIMEOUT_MINUTES", "30"))
     
     def __init__(self):
         self.db = get_database()
@@ -226,6 +233,14 @@ class AuthManager:
         expires_at = datetime.fromisoformat(session["expires_at"])
         if datetime.now() > expires_at:
             # Expire session
+            self.logout(session_token)
+            return None
+        
+        # Check for inactivity timeout
+        last_activity = datetime.fromisoformat(session["last_activity"])
+        timeout_threshold = datetime.now() - timedelta(minutes=self.SESSION_TIMEOUT_MINUTES)
+        if last_activity < timeout_threshold:
+            # Session inactive too long - log out user
             self.logout(session_token)
             return None
         

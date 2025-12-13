@@ -59,6 +59,7 @@ class User:
     is_active: bool = True
     is_locked: bool = False
     failed_login_attempts: int = 0
+    locked_at: Optional[str] = None  # Timestamp when account was locked
     
     # Timestamps
     created_at: Optional[str] = None

@@ -23,6 +23,7 @@ class AuthManager:
     """
     
     MAX_FAILED_ATTEMPTS = 5
+    ACCOUNT_LOCK_TIMEOUT_MINUTES = 30  # Auto-unlock after 30 minutes
     SESSION_DURATION_HOURS = 24
     SESSION_TIMEOUT_MINUTES = int(os.getenv("TYMATE_SESSION_TIMEOUT_MINUTES", "30"))
     
@@ -124,9 +125,31 @@ class AuthManager:
         
         user = User.from_dict(user_data)
         
+        # Check if account is locked and auto-unlock if timeout expired
+        if user.is_locked and user.locked_at:
+            locked_time = datetime.fromisoformat(user.locked_at)
+            time_since_lock = datetime.now() - locked_time
+            
+            if time_since_lock >= timedelta(minutes=self.ACCOUNT_LOCK_TIMEOUT_MINUTES):
+                # Auto-unlock the account
+                user.is_locked = False
+                user.failed_login_attempts = 0
+                user.locked_at = None
+                self.db.update(
+                    "users",
+                    {
+                        "is_locked": 0,
+                        "failed_login_attempts": 0,
+                        "locked_at": None,
+                        "updated_at": datetime.now().isoformat()
+                    },
+                    "id = ?",
+                    (user.id,)
+                )
+        
         # Check if account is locked
         if user.is_locked:
-            return False, "Account is locked. Contact administrator.", None, None
+            return False, "Account is locked. Please try again in a few minutes.", None, None
         
         # Check if account is active
         if not user.is_active:
@@ -140,18 +163,20 @@ class AuthManager:
             # Lock account if too many failures
             if user.failed_login_attempts >= self.MAX_FAILED_ATTEMPTS:
                 user.is_locked = True
+                user.locked_at = datetime.now().isoformat()
                 self.db.update(
                     "users",
                     {
                         "failed_login_attempts": user.failed_login_attempts,
                         "is_locked": 1,
+                        "locked_at": user.locked_at,
                         "updated_at": datetime.now().isoformat()
                     },
                     "id = ?",
                     (user.id,)
                 )
                 self._log_login_attempt(username, False, "Account locked", ip_address)
-                return False, f"Too many failed attempts. Account locked.", None, None
+                return False, f"Too many failed attempts. Account locked for {self.ACCOUNT_LOCK_TIMEOUT_MINUTES} minutes.", None, None
             else:
                 self.db.update(
                     "users",
@@ -437,6 +462,49 @@ class AuthManager:
                        new_value="Password updated")
         
         return True, "Password changed successfully"
+    
+    def unlock_user(self, user_id: int, admin_id: int) -> tuple[bool, str]:
+        """
+        Unlock a locked user account (admin only)
+        
+        Args:
+            user_id: ID of user to unlock
+            admin_id: ID of admin performing the unlock
+            
+        Returns:
+            Tuple of (success: bool, message: str)
+        """
+        try:
+            user_data = self.db.get_by_id("users", user_id)
+            if not user_data:
+                return False, "User not found"
+            
+            # Unlock the account
+            self.db.update(
+                "users",
+                {
+                    "is_locked": 0,
+                    "failed_login_attempts": 0,
+                    "locked_at": None,
+                    "updated_at": datetime.now().isoformat()
+                },
+                "id = ?",
+                (user_id,)
+            )
+            
+            # Log the unlock action
+            self._log_audit(
+                admin_id,
+                "USER_UNLOCKED",
+                "users",
+                user_id,
+                new_value=f"User unlocked by admin"
+            )
+            
+            return True, f"User '{user_data['username']}' unlocked successfully"
+            
+        except Exception as e:
+            return False, f"Unlock failed: {str(e)}"
 
 
 # Example usage

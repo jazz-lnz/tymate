@@ -121,6 +121,14 @@ def AdminPage(page: ft.Page, session: dict):
                                                 disabled=(user["id"] == session.get("user_id")),
                                             ),
                                             ft.IconButton(
+                                                icon=ft.Icons.LOCK_RESET,
+                                                icon_color=ft.Colors.ORANGE_700 if user["is_locked"] else ft.Colors.GREY_400,
+                                                icon_size=20,
+                                                tooltip="Unlock Account" if user["is_locked"] else "Account Not Locked",
+                                                on_click=lambda e, uid=user["id"]: unlock_user(uid),
+                                                disabled=(not user["is_locked"]),
+                                            ),
+                                            ft.IconButton(
                                                 icon=ft.Icons.DELETE_OUTLINE,
                                                 icon_color=ft.Colors.RED_700,
                                                 icon_size=20,
@@ -182,6 +190,14 @@ def AdminPage(page: ft.Page, session: dict):
         
         status_message.value = f"User {'enabled' if new_status else 'disabled'} successfully"
         status_message.color = ft.Colors.GREEN_700
+        refresh_user_list()
+    
+    def unlock_user(user_id):
+        """Unlock a locked user account"""
+        success, message = auth.unlock_user(user_id, session.get("user_id"))
+        
+        status_message.value = message
+        status_message.color = ft.Colors.GREEN_700 if success else ft.Colors.RED_700
         refresh_user_list()
     
     def confirm_delete_user(user_id, username):

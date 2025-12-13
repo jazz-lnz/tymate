@@ -85,6 +85,7 @@ class Database:
                 is_active INTEGER DEFAULT 1,
                 is_locked INTEGER DEFAULT 0,
                 failed_login_attempts INTEGER DEFAULT 0,
+                locked_at TEXT,
                 last_login TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,

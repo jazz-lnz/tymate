@@ -13,7 +13,7 @@
 10. [Individual Reflection](#reflections)
 
 **📋 Additional Documentation**:
-- **[Software Requirements Specification (SRS)](docs/FP_SRS_Lanuzo_BSCS3A.pdf)** — Complete project specification
+- **[Software Requirements Specification (SRS)](docs/Tymate%20SRS%20(Software%20Requirements%20Specification).pdf)** — Complete project specification
 - **[User Manual](docs/USER_MANUAL.md)** — Installation & usage guide
 - **[Security Report](docs/SECURITY_REPORT.md)** — Threat model, authentication, OWASP Top 10 analysis
 

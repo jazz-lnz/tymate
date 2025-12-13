@@ -98,6 +98,29 @@ class User:
         """
         return self.password_hash == self.hash_password(password)
     
+    @staticmethod
+    def validate_password_complexity(password: str) -> tuple[bool, str]:
+        """
+        Validate password meets basic security requirements (personal student app):
+        - At least 6 characters
+        - Should contain a mix of characters (optional - just basic length check)
+        
+        Suitable for a personal, standalone student app that may be upgraded later.
+        
+        Args:
+            password: Password to validate
+            
+        Returns:
+            Tuple of (is_valid: bool, message: str)
+        """
+        if not password:
+            return False, "Password cannot be empty"
+        
+        if len(password) < 6:
+            return False, "Password must be at least 6 characters"
+        
+        return True, "Password accepted"
+    
     # ==================== DATABASE METHODS ====================
     
     def to_dict(self) -> dict:

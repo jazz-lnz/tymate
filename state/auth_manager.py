@@ -56,9 +56,10 @@ class AuthManager:
         if existing_user:
             return False, "Username already exists", None
         
-        # Validate password
-        if not password or len(password) < 6:
-            return False, "Password must be at least 6 characters", None
+        # Validate password complexity
+        is_valid, msg = User.validate_password_complexity(password)
+        if not is_valid:
+            return False, msg, None
         
         # Create user object
         user = User(
@@ -374,7 +375,7 @@ class AuthManager:
         new_password: str
     ) -> tuple[bool, str]:
         """
-        Change user password
+        Change user password with policy enforcement
         
         Args:
             user_id: User ID
@@ -395,9 +396,14 @@ class AuthManager:
         if not user.verify_password(old_password):
             return False, "Current password is incorrect"
         
-        # Validate new password
-        if len(new_password) < 6:
-            return False, "New password must be at least 6 characters"
+        # Validate new password complexity
+        is_valid, msg = User.validate_password_complexity(new_password)
+        if not is_valid:
+            return False, msg
+        
+        # Check if new password matches old password
+        if user.verify_password(new_password):
+            return False, "New password cannot be the same as old password"
         
         # Update password
         new_hash = User.hash_password(new_password)

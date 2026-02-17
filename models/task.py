@@ -1,6 +1,9 @@
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .session import Session
 
 @dataclass
 class Task:
@@ -16,8 +19,7 @@ class Task:
         date_given: When task was assigned (YYYY-MM-DD) *REQUIRED*
         date_due: Due date (YYYY-MM-DD) *REQUIRED*
         description: Detailed description (optional)
-        estimated_time: Estimated hours to complete (optional)
-        actual_time: Actual hours spent (filled after completion, optional)
+        estimated_time: Estimated minutes to complete (optional)
         status: Current status (Not Started, In Progress, Completed)
         completed_at: When task was completed
         created_at: When task was created in system
@@ -37,8 +39,8 @@ class Task:
     # Optional fields
     id: Optional[int] = None
     description: Optional[str] = None
-    estimated_time: Optional[float] = None
-    actual_time: Optional[float] = None  # Prompted on completion
+    estimated_time: Optional[int] = None
+    sessions: Optional[list["Session"]] = None
     status: str = "Not Started"
     completed_at: Optional[str] = None
     created_at: Optional[str] = None
@@ -66,7 +68,6 @@ class Task:
             "date_due": self.date_due,
             "description": self.description,
             "estimated_time": self.estimated_time,
-            "actual_time": self.actual_time,
             "status": self.status,
             "completed_at": self.completed_at,
             "created_at": self.created_at,
@@ -88,7 +89,6 @@ class Task:
             date_due=data["date_due"],
             description=data.get("description"),
             estimated_time=data.get("estimated_time"),
-            actual_time=data.get("actual_time"),
             status=data.get("status", "Not Started"),
             completed_at=data.get("completed_at"),
             created_at=data.get("created_at"),
@@ -97,13 +97,33 @@ class Task:
             deleted_at=data.get("deleted_at"),
         )
     
-    def mark_complete(self, actual_time: Optional[float] = None):
+    def mark_complete(self):
         """Mark task as completed"""
         self.status = "Completed"
         self.completed_at = datetime.now().isoformat()
         self.updated_at = datetime.now().isoformat()
-        if actual_time is not None:
-            self.actual_time = actual_time
+
+    @property
+    def actual_time_minutes(self) -> int:
+        """
+        Sum of all session durations for this task.
+        Computed from sessions at query time.
+        """
+        if not self.sessions:
+            return 0
+
+        return sum(
+            session.duration_minutes
+            for session in self.sessions
+            if not session.is_deleted and session.duration_minutes is not None
+        )
+
+    @property
+    def actual_time(self) -> Optional[int]:
+        """Backwards-compatible alias for total minutes."""
+        if not self.sessions:
+            return None
+        return self.actual_time_minutes
     
     def is_overdue(self) -> bool:
         """Check if task is overdue"""
@@ -153,10 +173,10 @@ class Task:
         Returns None if no estimated or actual time
         Returns positive if underestimated, negative if overestimated
         """
-        if self.estimated_time is None or self.actual_time is None:
+        if self.estimated_time is None or not self.sessions:
             return None
-        
-        return self.actual_time - self.estimated_time
+
+        return self.actual_time_minutes - self.estimated_time
     
     def get_implicit_priority(self) -> str:
         """

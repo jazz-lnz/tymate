@@ -160,8 +160,7 @@ class Database:
                 date_given TEXT NOT NULL,
                 date_due TEXT NOT NULL,
                 description TEXT,
-                estimated_time REAL,
-                actual_time REAL,
+                estimated_time INTEGER,
                 status TEXT DEFAULT 'Not Started',
                 completed_at TEXT,
                 created_at TEXT NOT NULL,
@@ -214,6 +213,23 @@ class Database:
                 created_at TEXT NOT NULL,
                 FOREIGN KEY (user_id) REFERENCES users (id),
                 FOREIGN KEY (task_id) REFERENCES tasks (id)
+            )
+        """)
+
+        # Task sessions table (per-task time tracking in minutes)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS task_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                task_id INTEGER NOT NULL,
+                duration_minutes INTEGER NOT NULL,
+                notes TEXT,
+                logged_at TEXT,
+                created_at TEXT NOT NULL,
+                is_deleted INTEGER DEFAULT 0,
+                deleted_at TEXT,
+                FOREIGN KEY (user_id) REFERENCES users (id),
+                FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE
             )
         """)
         

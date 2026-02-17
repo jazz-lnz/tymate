@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 from typing import List, Optional
 from storage.sqlite import get_database
 from models.task import Task
+from state.session_manager import SessionManager
 
 class TaskManager:
     """
@@ -22,7 +23,7 @@ class TaskManager:
         date_given: str,
         date_due: str,
         description: str = None,
-        estimated_time: float = None,
+        estimated_time: int = None,
         status: str = "Not Started",
         completed_at: str = None,
     ) -> tuple[bool, str, Optional[Task]]:
@@ -247,14 +248,32 @@ class TaskManager:
         except Exception as e:
             return False, f"Failed to update task: {str(e)}"
     
-    def mark_complete(self, task_id: int, actual_time: float | None = None) -> tuple[bool, str]:
-        """Mark a task as completed, optionally recording actual_time"""
+    def mark_complete(
+        self,
+        task_id: int,
+        duration_minutes: Optional[int] = None,
+        notes: Optional[str] = None,
+    ) -> tuple[bool, str]:
+        """Mark a task as completed and optionally log a session."""
+        task = self.get_task(task_id, include_deleted=True)
+        if not task:
+            return False, "Task not found"
+
+        if duration_minutes is not None:
+            session_manager = SessionManager()
+            ok, msg, _ = session_manager.log_session(
+                user_id=task.user_id,
+                task_id=task_id,
+                duration_minutes=duration_minutes,
+                notes=notes,
+            )
+            if not ok:
+                return False, msg
+
         updates = {
             "status": "Completed",
             "completed_at": datetime.now().isoformat(),
         }
-        if actual_time is not None:
-            updates["actual_time"] = actual_time
 
         return self.update_task(task_id, **updates)
 

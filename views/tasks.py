@@ -511,11 +511,11 @@ def TasksPage(page: ft.Page, session: dict = None):
         """Show dialog to mark task complete and enter actual time"""
         
         actual_time_field = ft.TextField(
-            label="Actual Time Spent (hours)",
+            label="Actual Time Spent (minutes)",
             width=300,
             value=str(task.estimated_time) if task.estimated_time else "",
             keyboard_type=ft.KeyboardType.NUMBER,
-            hint_text="How many hours did you spend?",
+            hint_text="How many minutes did you spend?",
             border_color=ft.Colors.GREY_400,
         )
         
@@ -523,14 +523,14 @@ def TasksPage(page: ft.Page, session: dict = None):
         
         def save_completion(e):
             try:
-                actual_time = float(actual_time_field.value) if actual_time_field.value else None
+                actual_minutes = int(actual_time_field.value) if actual_time_field.value else None
             except:
                 error_text.value = "Please enter a valid number"
                 page.update()
                 return
             
             # Mark as complete
-            task_manager.mark_complete(task.id, actual_time=actual_time)
+            task_manager.mark_complete(task.id, duration_minutes=actual_minutes)
             dialog.open = False
             load_tasks(current_filter)
             page.update()

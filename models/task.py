@@ -103,18 +103,11 @@ class Task:
         self.completed_at = datetime.now().isoformat()
         self.updated_at = datetime.now().isoformat()
 
-    @property
-    def actual_time_minutes(self) -> int:
-        """
-        Sum of all session durations for this task.
-        Computed from sessions at query time.
-        """
-        if not self.sessions:
-            return 0
-
+    def compute_actual_minutes(self, sessions: list["Session"]) -> int:
+        """Pass in session objects, get total minutes back."""
         return sum(
             session.duration_minutes
-            for session in self.sessions
+            for session in sessions
             if not session.is_deleted and session.duration_minutes is not None
         )
 
@@ -123,7 +116,7 @@ class Task:
         """Backwards-compatible alias for total minutes."""
         if not self.sessions:
             return None
-        return self.actual_time_minutes
+        return self.compute_actual_minutes(self.sessions)
     
     def is_overdue(self) -> bool:
         """Check if task is overdue"""
@@ -176,7 +169,7 @@ class Task:
         if self.estimated_time is None or not self.sessions:
             return None
 
-        return self.actual_time_minutes - self.estimated_time
+        return self.compute_actual_minutes(self.sessions) - self.estimated_time
     
     def get_implicit_priority(self) -> str:
         """

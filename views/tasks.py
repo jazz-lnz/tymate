@@ -3,7 +3,9 @@ from datetime import datetime
 import time
 import threading
 from state.task_manager import TaskManager
+from state.session_manager import SessionManager
 from models.task import CATEGORIES, STATUSES
+from utils.time_helpers import format_minutes, parse_time_input
 
 def TasksPage(page: ft.Page, session: dict = None):
     """
@@ -23,6 +25,7 @@ def TasksPage(page: ft.Page, session: dict = None):
         )
     
     task_manager = TaskManager()
+    session_manager = SessionManager()
     user_id = session["user"].id
 
     # Add database lock to prevent recursive cursor usage
@@ -37,6 +40,7 @@ def TasksPage(page: ft.Page, session: dict = None):
     
     # Track current tasks for responsive rebuild
     current_tasks = []
+    task_actual_times = {}
     
     # Get current date/time
     now = datetime.now()
@@ -75,7 +79,7 @@ def TasksPage(page: ft.Page, session: dict = None):
     filter_tabs_container = ft.Row(spacing=8)
     
     # Total time display (define before load_tasks)
-    total_time_text = ft.Text("0 h", size=18, weight=ft.FontWeight.W_700, color=ft.Colors.GREY_900)
+    total_time_text = ft.Text(format_minutes(0), size=18, weight=ft.FontWeight.W_700, color=ft.Colors.GREY_900)
     total_time_label = ft.Text("Total Est. Time (Due/Payable)", size=13, color=ft.Colors.GREY_700, weight=ft.FontWeight.W_600)
     
     # Status message display
@@ -130,14 +134,14 @@ def TasksPage(page: ft.Page, session: dict = None):
         """Calculate sum of estimated time for non-completed tasks"""
         total = 0
         for task in current_tasks:
-            if task.status != "Completed" and task.estimated_time:
+            if task.status != "Completed" and task.estimated_time is not None:
                 total += task.estimated_time
         return total
     
     def update_total_time():
         """Update the total estimated time display"""
         total = get_total_estimated_time()
-        total_time_text.value = f"{total} h"
+        total_time_text.value = format_minutes(total)
         if total_time_text.page is not None:
             total_time_text.update()
 
@@ -157,7 +161,7 @@ def TasksPage(page: ft.Page, session: dict = None):
             if task_list_container.page is not None:
                 task_list_container.update()
 
-            nonlocal current_filter, search_query
+            nonlocal current_filter, search_query, task_actual_times
             current_filter = filter_status or "All"
 
             # Load all tasks from your TaskManager
@@ -176,6 +180,12 @@ def TasksPage(page: ft.Page, session: dict = None):
                 or q in t.source.lower()
                 or q in t.category.lower()
             ]
+
+        task_actual_times = {
+            task.id: session_manager.get_total_minutes_for_task(task.id)
+            for task in tasks
+            if task.id is not None and task.status == "Completed"
+        }
 
         # Sort tasks by date_due (earliest first)
         tasks.sort(key=lambda t: t.date_due if t.date_due else "9999-12-31")
@@ -248,6 +258,7 @@ def TasksPage(page: ft.Page, session: dict = None):
         
         # Check if overdue
         is_overdue = task.is_overdue()
+        actual_minutes = task_actual_times.get(task.id, 0)
         
         # Responsive: stack on mobile, single row on desktop
         is_mobile = page.window.width < 768
@@ -349,10 +360,16 @@ def TasksPage(page: ft.Page, session: dict = None):
                                     visible=task.status == "Completed" and task.completed_at is not None,
                                 ),
                                 ft.Text(
-                                    f"Est: {task.estimated_time}h" if task.estimated_time else "—",
+                                    f"Est: {format_minutes(task.estimated_time)}" if task.estimated_time is not None else "—",
                                     size=12,
                                     color=ft.Colors.GREY_600,
-                                ) if task.estimated_time or task.actual_time else ft.Container(),
+                                ) if task.estimated_time is not None else ft.Container(),
+                                ft.Text(
+                                    f"Actual: {format_minutes(actual_minutes)}",
+                                    size=12,
+                                    color=ft.Colors.GREY_600,
+                                    visible=task.status == "Completed",
+                                ),
                             ],
                             spacing=8,
                             wrap=True,
@@ -445,11 +462,18 @@ def TasksPage(page: ft.Page, session: dict = None):
 
                         # Time info
                         ft.Text(
-                            f"Est: {task.estimated_time}h" if task.estimated_time else "—",
+                            f"Est: {format_minutes(task.estimated_time)}" if task.estimated_time is not None else "—",
                             size=12,
                             color=ft.Colors.GREY_600,
-                            width=70,
-                        ) if task.estimated_time or task.actual_time else ft.Container(),
+                            width=100,
+                        ) if task.estimated_time is not None else ft.Container(),
+
+                        ft.Text(
+                            f"Actual: {format_minutes(actual_minutes)}" if task.status == "Completed" else "",
+                            size=12,
+                            color=ft.Colors.GREY_600,
+                            width=110,
+                        ) if task.status == "Completed" else ft.Container(),
                         
                         # Completion date
                         ft.Text(
@@ -510,22 +534,22 @@ def TasksPage(page: ft.Page, session: dict = None):
     def show_complete_dialog(task):
         """Show dialog to mark task complete and enter actual time"""
         
-        actual_time_field = ft.TextField(
-            label="Actual Time Spent (minutes)",
+        time_spent_field = ft.TextField(
+            label="Time spent (optional)",
             width=300,
-            value=str(task.estimated_time) if task.estimated_time else "",
-            keyboard_type=ft.KeyboardType.NUMBER,
-            hint_text="How many minutes did you spend?",
+            value=str(task.estimated_time) if task.estimated_time is not None else "",
+            hint_text="e.g., 90m, 2h 30m, 1.5h",
             border_color=ft.Colors.GREY_400,
         )
         
         error_text = ft.Text("", color=ft.Colors.RED_600, size=12)
         
         def save_completion(e):
-            try:
-                actual_minutes = int(actual_time_field.value) if actual_time_field.value else None
-            except:
-                error_text.value = "Please enter a valid number"
+            raw_input = (time_spent_field.value or "").strip()
+            actual_minutes = parse_time_input(raw_input) if raw_input else None
+
+            if raw_input and actual_minutes is None:
+                error_text.value = "Please enter a valid time (e.g., 90m, 2h 30m, 1.5h)"
                 page.update()
                 return
             
@@ -554,9 +578,9 @@ def TasksPage(page: ft.Page, session: dict = None):
                     ),
                     ft.Text("How much time did you actually spend?", size=13, color=ft.Colors.GREY_700),
                     ft.Container(height=4),
-                    actual_time_field,
+                    time_spent_field,
                     ft.Text(
-                        f"Estimated: {task.estimated_time}h" if task.estimated_time else "",
+                        f"Estimated: {format_minutes(task.estimated_time)}" if task.estimated_time is not None else "",
                         size=12,
                         color=ft.Colors.GREY_600,
                         visible=task.estimated_time is not None,
@@ -620,10 +644,10 @@ def TasksPage(page: ft.Page, session: dict = None):
             border_color=ft.Colors.GREY_400,
         )
         estimated_time_field = ft.TextField(
-            label="Estimated Hours (optional)",
+            label="Estimated Minutes (optional)",
             width=190,
             keyboard_type=ft.KeyboardType.NUMBER,
-            hint_text="e.g., 3.5",
+            hint_text="e.g., 150",
             border_color=ft.Colors.GREY_400,
         )
         status_dropdown = ft.Dropdown(
@@ -671,7 +695,7 @@ def TasksPage(page: ft.Page, session: dict = None):
             
             # Parse estimated time
             try:
-                est_time = float(estimated_time_field.value) if estimated_time_field.value else None
+                est_time = int(estimated_time_field.value) if estimated_time_field.value else None
             except:
                 est_time = None
 
@@ -773,16 +797,9 @@ def TasksPage(page: ft.Page, session: dict = None):
             border_color=ft.Colors.GREY_400,
         )
         estimated_time_field = ft.TextField(
-            label="Estimated Hours",
+            label="Estimated Minutes",
             width=190,
             value=str(task.estimated_time) if task.estimated_time else "",
-            keyboard_type=ft.KeyboardType.NUMBER,
-            border_color=ft.Colors.GREY_400,
-        )
-        actual_time_field = ft.TextField(
-            label="Actual Hours",
-            width=190,
-            value=str(task.actual_time) if task.actual_time else "",
             keyboard_type=ft.KeyboardType.NUMBER,
             border_color=ft.Colors.GREY_400,
         )
@@ -811,14 +828,9 @@ def TasksPage(page: ft.Page, session: dict = None):
             
             # Parse times
             try:
-                est_time = float(estimated_time_field.value) if estimated_time_field.value else None
+                est_time = int(estimated_time_field.value) if estimated_time_field.value else None
             except:
                 est_time = None
-            
-            try:
-                act_time = float(actual_time_field.value) if actual_time_field.value else None
-            except:
-                act_time = None
             
             # Parse completion date
             completed_at = completed_at_field.value if completed_at_field.value else None
@@ -833,7 +845,6 @@ def TasksPage(page: ft.Page, session: dict = None):
                 date_due=due_date_field.value,
                 description=description_field.value,
                 estimated_time=est_time,
-                actual_time=act_time,
                 status=status_dropdown.value,
                 completed_at=completed_at,
             )
@@ -854,7 +865,7 @@ def TasksPage(page: ft.Page, session: dict = None):
                     category_dropdown,
                     ft.Row([date_given_field, due_date_field], spacing=10),
                     description_field,
-                    ft.Row([estimated_time_field, actual_time_field], spacing=10),
+                    ft.Row([estimated_time_field], spacing=10),
                     ft.Row([status_dropdown, completed_at_field], spacing=10),
                     error_text,
                 ],

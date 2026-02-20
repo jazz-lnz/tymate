@@ -55,19 +55,23 @@ class AnalyticsEngine:
             # Get completed tasks
             completed = self.db.fetch_all("""
                 SELECT 
-                    date_given,
-                    date_due,
-                    completed_at,
-                    category,
-                    estimated_time,
-                    actual_time,
-                    status
-                FROM tasks
-                WHERE user_id = ? 
-                AND status = 'Completed'
-                AND completed_at IS NOT NULL
-                AND date_given >= ?
-                AND is_deleted = 0
+                    t.id,
+                    t.date_given,
+                    t.date_due,
+                    t.completed_at,
+                    t.category,
+                    t.estimated_time,
+                    SUM(ts.duration_minutes) as actual_minutes,
+                    t.status
+                FROM tasks t
+                LEFT JOIN task_sessions ts
+                    ON ts.task_id = t.id AND ts.is_deleted = 0
+                WHERE t.user_id = ? 
+                AND t.status = 'Completed'
+                AND t.completed_at IS NOT NULL
+                AND t.date_given >= ?
+                AND t.is_deleted = 0
+                GROUP BY t.id
             """, (user_id, cutoff_date))
             
             if not completed:
@@ -106,9 +110,9 @@ class AnalyticsEngine:
                     category_stats[category]["completed"] += 1
                     
                     # Time estimation accuracy
-                    if task["estimated_time"] and task["actual_time"]:
-                        est = float(task["estimated_time"])
-                        act = float(task["actual_time"])
+                    if task["estimated_time"] and task["actual_minutes"]:
+                        est = int(task["estimated_time"])
+                        act = int(task["actual_minutes"])
                         if est > 0:
                             accuracy = (act / est) * 100
                             if 10 <= accuracy <= 500:  # Reasonable bounds
@@ -304,19 +308,22 @@ class AnalyticsEngine:
             # Get completed tasks grouped by week
             completed = self.db.fetch_all("""
                 SELECT 
-                    date(completed_at) as completion_date,
-                    actual_time
-                FROM tasks
-                WHERE user_id = ?
-                AND status = 'Completed'
-                AND completed_at IS NOT NULL
-                AND completed_at >= ?
-                AND is_deleted = 0
-                ORDER BY completed_at
+                    date(t.completed_at) as completion_date,
+                    SUM(ts.duration_minutes) as actual_minutes
+                FROM tasks t
+                LEFT JOIN task_sessions ts
+                    ON ts.task_id = t.id AND ts.is_deleted = 0
+                WHERE t.user_id = ?
+                AND t.status = 'Completed'
+                AND t.completed_at IS NOT NULL
+                AND t.completed_at >= ?
+                AND t.is_deleted = 0
+                GROUP BY t.id
+                ORDER BY t.completed_at
             """, (user_id, cutoff_date))
             
             # Group by week manually
-            weekly_stats = defaultdict(lambda: {"tasks": 0, "hours": 0})
+            weekly_stats = defaultdict(lambda: {"tasks": 0, "minutes": 0})
             
             for task in completed:
                 try:
@@ -329,8 +336,8 @@ class AnalyticsEngine:
                     week_key = f"{year}-W{week:02d}"
                     
                     weekly_stats[week_key]["tasks"] += 1
-                    if task["actual_time"]:
-                        weekly_stats[week_key]["hours"] += float(task["actual_time"])
+                    if task["actual_minutes"]:
+                        weekly_stats[week_key]["minutes"] += int(task["actual_minutes"])
                 
                 except Exception as e:
                     print(f"Error processing weekly task: {e}")
@@ -341,7 +348,7 @@ class AnalyticsEngine:
                 {
                     "week": week,
                     "tasks_completed": stats["tasks"],
-                    "hours_logged": round(stats["hours"], 1),
+                    "minutes_logged": int(stats["minutes"]),
                 }
                 for week, stats in sorted(weekly_stats.items())
             ]
@@ -394,17 +401,23 @@ class AnalyticsEngine:
         try:
             data = self.db.fetch_all("""
                 SELECT 
-                    category,
+                    t.category,
                     COUNT(*) as total_tasks,
-                    SUM(CASE WHEN status = 'Completed' THEN 1 ELSE 0 END) as completed,
-                    AVG(CASE WHEN actual_time IS NOT NULL AND status = 'Completed' THEN actual_time ELSE NULL END) as avg_actual_time,
-                    AVG(CASE WHEN estimated_time IS NOT NULL THEN estimated_time ELSE NULL END) as avg_estimated_time,
-                    COUNT(CASE WHEN status = 'Completed' AND completed_at > date_due THEN 1 ELSE NULL END) as late_count
-                FROM tasks
-                WHERE user_id = ?
-                AND is_deleted = 0
-                AND date_given >= date('now', '-60 days')
-                GROUP BY category
+                    SUM(CASE WHEN t.status = 'Completed' THEN 1 ELSE 0 END) as completed,
+                    AVG(ts_totals.total_minutes) as avg_actual_minutes,
+                    AVG(CASE WHEN t.estimated_time IS NOT NULL THEN t.estimated_time ELSE NULL END) as avg_estimated_minutes,
+                    COUNT(CASE WHEN t.status = 'Completed' AND t.completed_at > t.date_due THEN 1 ELSE NULL END) as late_count
+                FROM tasks t
+                LEFT JOIN (
+                    SELECT task_id, SUM(duration_minutes) as total_minutes
+                    FROM task_sessions
+                    WHERE is_deleted = 0
+                    GROUP BY task_id
+                ) ts_totals ON ts_totals.task_id = t.id
+                WHERE t.user_id = ?
+                AND t.is_deleted = 0
+                AND t.date_given >= date('now', '-60 days')
+                GROUP BY t.category
                 HAVING total_tasks > 0
                 ORDER BY total_tasks DESC
             """, (user_id,))
@@ -421,9 +434,9 @@ class AnalyticsEngine:
                     
                     # Time accuracy
                     time_accuracy = None
-                    if row["avg_estimated_time"] and row["avg_actual_time"]:
-                        est = float(row["avg_estimated_time"])
-                        act = float(row["avg_actual_time"])
+                    if row["avg_estimated_minutes"] and row["avg_actual_minutes"]:
+                        est = int(row["avg_estimated_minutes"])
+                        act = int(row["avg_actual_minutes"])
                         if est > 0:
                             time_accuracy = (act / est) * 100
                     
@@ -432,7 +445,7 @@ class AnalyticsEngine:
                         "total_tasks": total,
                         "completion_rate": round(completion_rate, 1),
                         "on_time_rate": round(on_time_rate, 1),
-                        "avg_hours": round(row["avg_actual_time"] or 0, 1),
+                        "avg_minutes": int(row["avg_actual_minutes"] or 0),
                         "time_accuracy": round(time_accuracy, 1) if time_accuracy else None,
                     })
                 
@@ -594,19 +607,22 @@ class AnalyticsEngine:
                     AND is_deleted = 0
                 """, (user_id, date_str))
                 
-                # Get hours logged
-                hours = self.db.fetch_one("""
-                    SELECT SUM(hours) as total
-                    FROM time_logs
-                    WHERE user_id = ?
-                    AND date = ?
+                # Get task session minutes logged on this date
+                minutes = self.db.fetch_one("""
+                    SELECT SUM(ts.duration_minutes) as total
+                    FROM task_sessions ts
+                    JOIN tasks t ON t.id = ts.task_id
+                    WHERE ts.user_id = ?
+                    AND DATE(ts.logged_at) = ?
+                    AND ts.is_deleted = 0
+                    AND t.is_deleted = 0
                 """, (user_id, date_str))
                 
                 data.append({
                     "date": date.strftime("%a")[:3],  # Mon, Tue, etc (shortened)
                     "full_date": date_str,
                     "tasks": count["count"] if count else 0,
-                    "hours": round(float(hours["total"]) if hours and hours["total"] else 0, 1),
+                    "minutes": int(minutes["total"] or 0) if minutes else 0,
                 })
             
             return {"daily_data": data}

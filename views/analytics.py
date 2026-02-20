@@ -1,6 +1,7 @@
 import flet as ft
 from datetime import datetime
 from services.analytics_engine import AnalyticsEngine
+from utils.time_helpers import format_minutes
 
 
 def AnalyticsPage(page: ft.Page, session: dict = None):
@@ -181,10 +182,10 @@ def AnalyticsPage(page: ft.Page, session: dict = None):
         print(f"Creating chart with {len(chart_data)} data points")
         # Find max for scaling
         max_tasks = max([d["tasks"] for d in chart_data])
-        max_hours = max([d["hours"] for d in chart_data])
+        max_minutes = max([d["minutes"] for d in chart_data])
         
         max_tasks = max(max_tasks, 1)
-        max_hours = max(max_hours, 1)
+        max_minutes = max(max_minutes, 1)
         chart_height = 200
         
         # Create bars
@@ -202,7 +203,7 @@ def AnalyticsPage(page: ft.Page, session: dict = None):
                         bgcolor=ft.Colors.GREY_700,
                         border_radius=2,
                     ),
-                    tooltip=f"{day['tasks']} tasks, {day['hours']}h",
+                    tooltip=f"{day['tasks']} tasks, {format_minutes(day.get('minutes', 0))}",
                     alignment=ft.alignment.bottom_center,
                 )
             )

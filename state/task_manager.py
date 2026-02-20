@@ -11,6 +11,22 @@ class TaskManager:
     
     def __init__(self):
         self.db = get_database()
+
+    @staticmethod
+    def _normalize_minutes(value) -> Optional[int]:
+        """Normalize minute inputs to optional int minutes."""
+        if value is None or value == "":
+            return None
+
+        try:
+            minutes = int(value)
+        except (TypeError, ValueError):
+            raise ValueError("Minutes must be an integer")
+
+        if minutes < 0:
+            raise ValueError("Minutes cannot be negative")
+
+        return minutes
     
     # ==================== CREATE ====================
     
@@ -23,7 +39,7 @@ class TaskManager:
         date_given: str,
         date_due: str,
         description: str = None,
-        estimated_time: int = None,
+        estimated_time: Optional[int] = None,
         status: str = "Not Started",
         completed_at: str = None,
     ) -> tuple[bool, str, Optional[Task]]:
@@ -32,6 +48,11 @@ class TaskManager:
         if not title or not title.strip():
             return False, "Task title is required", None
         
+        try:
+            estimated_minutes = self._normalize_minutes(estimated_time)
+        except ValueError as e:
+            return False, str(e), None
+
         # Create task object
         task = Task(
             user_id=user_id,
@@ -41,7 +62,7 @@ class TaskManager:
             date_given=date_given,
             date_due=date_due,
             description=description,
-            estimated_time=estimated_time,
+            estimated_time=estimated_minutes,
             status=status,
             completed_at=completed_at,
         )
@@ -235,6 +256,12 @@ class TaskManager:
         if not task:
             return False, "Task not found"
         
+        if "estimated_time" in updates:
+            try:
+                updates["estimated_time"] = self._normalize_minutes(updates.get("estimated_time"))
+            except ValueError as e:
+                return False, str(e)
+
         # Add updated timestamp
         updates["updated_at"] = datetime.now().isoformat()
         
@@ -260,11 +287,19 @@ class TaskManager:
             return False, "Task not found"
 
         if duration_minutes is not None:
+            try:
+                normalized_duration = self._normalize_minutes(duration_minutes)
+            except ValueError as e:
+                return False, str(e)
+
+            if normalized_duration == 0:
+                return False, "Duration must be greater than 0 minutes"
+
             session_manager = SessionManager()
             ok, msg, _ = session_manager.log_session(
                 user_id=task.user_id,
                 task_id=task_id,
-                duration_minutes=duration_minutes,
+                duration_minutes=normalized_duration,
                 notes=notes,
             )
             if not ok:

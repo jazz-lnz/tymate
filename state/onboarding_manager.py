@@ -332,17 +332,18 @@ class OnboardingManager:
         if result and result["total_hours"]:
             return result["total_hours"]
         
-        # Fallback: sum actual_time from tasks completed this week
-        task_hours = self.db.fetch_one("""
-            SELECT SUM(actual_time) as total_hours
-            FROM tasks
+        # Fallback: sum task session minutes logged this week
+        session_minutes = self.db.fetch_one("""
+            SELECT SUM(duration_minutes) as total_minutes
+            FROM task_sessions
             WHERE user_id = ?
-            AND DATE(completed_at) >= ?
-            AND actual_time IS NOT NULL
+            AND DATE(logged_at) >= ?
             AND is_deleted = 0
         """, (user_id, start_of_week.isoformat()))
-        
-        return task_hours["total_hours"] if task_hours and task_hours["total_hours"] else 0.0
+
+        if session_minutes and session_minutes["total_minutes"]:
+            return round(session_minutes["total_minutes"] / 60.0, 2)
+        return 0.0
     
     def get_remaining_budget(self, user_id: int, current_time: Optional[datetime] = None) -> Dict[str, float]:
         """

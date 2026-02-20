@@ -4,6 +4,7 @@ import time
 import threading
 
 from state.onboarding_manager import OnboardingManager
+from utils.time_helpers import format_minutes
 
 def DashboardPage(page: ft.Page, session: dict = None):
     """
@@ -281,7 +282,7 @@ def DashboardPage(page: ft.Page, session: dict = None):
                 height=max(height, 2),
                 bgcolor=ft.Colors.GREY_600,
                 border_radius=2,
-                tooltip=f"{day_data['tasks']} tasks, {day_data['hours']}h",
+                tooltip=f"{day_data['tasks']} tasks, {format_minutes(day_data.get('minutes', 0))}",
             )
         )
     

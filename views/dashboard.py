@@ -1,10 +1,11 @@
 import flet as ft
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import time
 import threading
 
 from state.onboarding_manager import OnboardingManager
 from utils.time_helpers import format_minutes
+from managers.schedule_manager import ScheduleManager
 
 def DashboardPage(page: ft.Page, session: dict = None):
     """
@@ -207,6 +208,27 @@ def DashboardPage(page: ft.Page, session: dict = None):
     def is_mobile():
         return page.window.width < 768
     
+    # Calculate today's schedule data
+    schedule_manager = ScheduleManager()
+    today = datetime.now().date()
+    free_minutes_today = schedule_manager.compute_free_time_today(user_id, today) if user_id else 0
+    
+    two_days_ahead = today + timedelta(days=2)
+    needed_tasks = [
+        t for t in upcoming_tasks
+        if t.date_due and datetime.strptime(t.date_due, "%Y-%m-%d").date() <= two_days_ahead
+    ]
+    total_needed_minutes = sum(t.estimated_time or 0 for t in needed_tasks)
+    
+    minutes_surplus = free_minutes_today - total_needed_minutes
+    if minutes_surplus >= 0:
+        if minutes_surplus > 240:
+            budget_verdict = "✓ You have room to do stuff."
+        else:
+            budget_verdict = "✓ Time is tight, but things are doable."
+    else:
+        budget_verdict = f"⚠ You're short by {format_minutes(abs(minutes_surplus))}. Something has to move."
+    
     # Create task items - custom inline display
     task_items = []
     for task in upcoming_tasks:
@@ -219,12 +241,31 @@ def DashboardPage(page: ft.Page, session: dict = None):
                 due_str = task.date_due
         else:
             due_str = "No due date"
+        
+        est_time_str = format_minutes(task.estimated_time) if task.estimated_time else "—"
             
         task_items.append(
             ft.Container(
                 content=ft.Column(
                     controls=[
-                        ft.Text(task.title, size=14, weight=ft.FontWeight.W_500, color=ft.Colors.GREY_900),
+                        ft.Row(
+                            controls=[
+                                ft.Text(
+                                    task.title,
+                                    size=14,
+                                    weight=ft.FontWeight.W_500,
+                                    color=ft.Colors.GREY_900,
+                                    expand=True,
+                                ),
+                                ft.Text(
+                                    est_time_str,
+                                    size=12,
+                                    color=ft.Colors.GREY_600,
+                                ),
+                            ],
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
                         ft.Text(f"Due: {due_str}", size=12, color=ft.Colors.GREY_600),
                     ],
                     spacing=2,
@@ -337,72 +378,44 @@ def DashboardPage(page: ft.Page, session: dict = None):
     time_budget_section = ft.Container(
         content=ft.Column(
             controls=[
-                ft.Text("Time Budget Information", size=18, weight=ft.FontWeight.W_600, color=ft.Colors.GREY_900),
+                ft.Text("Today's Budget", size=18, weight=ft.FontWeight.W_600, color=ft.Colors.GREY_900),
                 ft.Container(
                     height=2,
                     bgcolor=ft.Colors.GREY_400,
                     margin=ft.margin.only(top=12, bottom=16),
                 ),
-                
-                # Budget overview
-                ft.Column(
+                ft.Row(
                     controls=[
-                        ft.Row(
-                            controls=[
-                                ft.Text("Free Time", size=12, color=ft.Colors.GREY_700, weight=ft.FontWeight.W_500),
-                                ft.Text(
-                                    f"{free_remaining:.1f} / {free_hours:.1f} hrs left",
-                                    size=12,
-                                    weight=ft.FontWeight.W_600,
-                                    color=ft.Colors.GREY_900,
-                                ),
-                            ],
-                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                        ),
-                        ft.Container(height=4),
-                        ft.Row(
-                            controls=[
-                                ft.Text("Wake Time", size=12, color=ft.Colors.GREY_700, weight=ft.FontWeight.W_500),
-                                ft.Text(
-                                    budget.get("wake_time", "07:00"),
-                                    size=12,
-                                    weight=ft.FontWeight.W_600,
-                                    color=ft.Colors.GREY_900,
-                                ),
-                            ],
-                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                        ),
-                        ft.Container(height=4),
-                        ft.Row(
-                            controls=[
-                                ft.Text("Bedtime", size=12, color=ft.Colors.GREY_700, weight=ft.FontWeight.W_500),
-                                ft.Text(
-                                    budget.get("bedtime", "23:00"),
-                                    size=12,
-                                    weight=ft.FontWeight.W_600,
-                                    color=ft.Colors.GREY_900,
-                                ),
-                            ],
-                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                        ),
-                        ft.Container(height=4),
-                        ft.Row(
-                            controls=[
-                                ft.Text("Sleep", size=12, color=ft.Colors.GREY_700, weight=ft.FontWeight.W_500),
-                                ft.Text(
-                                    f"{user_data.get('sleep_hours', 8)} hrs/day",
-                                    size=12,
-                                    weight=ft.FontWeight.W_600,
-                                    color=ft.Colors.GREY_900,
-                                ),
-                            ],
-                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        ft.Text("Free Time (after classes)", size=12, color=ft.Colors.GREY_700, weight=ft.FontWeight.W_500),
+                        ft.Text(
+                            format_minutes(free_minutes_today),
+                            size=12,
+                            weight=ft.FontWeight.W_600,
+                            color=ft.Colors.GREY_900,
                         ),
                     ],
-                    spacing=0,
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 ),
-                
-                ft.Container(height=16),
+                ft.Container(height=4),
+                ft.Row(
+                    controls=[
+                        ft.Text("Tasks Due in 2 Days", size=12, color=ft.Colors.GREY_700, weight=ft.FontWeight.W_500),
+                        ft.Text(
+                            format_minutes(total_needed_minutes),
+                            size=12,
+                            weight=ft.FontWeight.W_600,
+                            color=ft.Colors.GREY_900,
+                        ),
+                    ],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                ),
+                ft.Container(height=8),
+                ft.Text(
+                    budget_verdict,
+                    size=13,
+                    weight=ft.FontWeight.W_600,
+                    color=ft.Colors.GREEN_700 if minutes_surplus >= 0 else ft.Colors.RED_700,
+                ),
             ],
             horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
             spacing=0,

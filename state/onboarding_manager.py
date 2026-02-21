@@ -50,13 +50,29 @@ class OnboardingManager:
     
     @staticmethod
     def get_hours_until_bedtime(current_time, wake_time, sleep_hours):
+        """
+        Calculate hours from current time until next bedtime.
+        Handles edge case where bedtime is early morning (e.g., 2 AM from 7 AM wake with 5h sleep).
         
+        Args:
+            current_time: Current datetime
+            wake_time: Wake time as time object
+            sleep_hours: Hours of sleep
+            
+        Returns:
+            Hours until next bedtime (positive value)
+        """
         bedtime = OnboardingManager.calculate_bedtime(wake_time, sleep_hours)
         
         today = current_time.date()
         bed_today = datetime.combine(today, bedtime)
-
-        hours = (bed_today - current_time).total_seconds()/3600
+        
+        # Critical fix: If bedtime is before current time (e.g., 2 AM when it's 9 AM),
+        # bedtime already happened - the next bedtime is tomorrow
+        if bed_today <= current_time:
+            bed_today = bed_today + timedelta(days=1)
+        
+        hours = (bed_today - current_time).total_seconds() / 3600
         return hours
     
     @staticmethod

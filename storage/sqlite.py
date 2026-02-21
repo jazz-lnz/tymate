@@ -312,6 +312,36 @@ class Database:
                 FOREIGN KEY (user_id) REFERENCES users (id)
             )
         """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS class_schedule (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                day_of_week INTEGER NOT NULL,
+                start_time TEXT NOT NULL,
+                end_time TEXT NOT NULL,
+                course_name TEXT,
+                location TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS work_schedule (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                schedule_type TEXT NOT NULL,
+                day_of_week INTEGER,
+                start_time TEXT,
+                end_time TEXT,
+                weekly_hours_target REAL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            )
+        """)
         
         self.connection.commit()
         

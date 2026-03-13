@@ -183,7 +183,7 @@ class TaskManager:
         for task in tasks:
             if task.status == "Completed":
                 stats["completed"] += 1
-            elif task.status == "In Progress":
+            elif task.status in ("Started", "In Progress"):
                 stats["in_progress"] += 1
             elif task.status == "Not Started":
                 stats["not_started"] += 1

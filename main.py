@@ -5,7 +5,7 @@ from components.navbar import create_navbar
 from views.dashboard import DashboardPage
 from views.login import LoginPage
 from views.tasks import TasksPage
-from views.log_hours import LogHoursPage
+from views.time_it import TimeItPage
 from views.settings import SettingsPage
 from views.onboarding import OnboardingPage
 from views.admin import AdminPage
@@ -41,8 +41,65 @@ def main(page: ft.Page):
     main_content = ft.Container(expand=True)
     
     # Navigation function to switch between pages
-    def route_change(route: str):
+    def route_change(route: str, bypass_time_it_guard: bool = False):
         """Handle route changes"""
+        current_route = session.get("current_route", page.route)
+        target_route = route
+
+        leaving_time_it = current_route == "/time_it" and target_route != "/time_it"
+        timer_actively_running = (
+            callable(session.get("time_it_is_timer_running"))
+            and session["time_it_is_timer_running"]()
+        )
+        has_active_progress = (
+            callable(session.get("time_it_has_active_progress"))
+            and session["time_it_has_active_progress"]()
+        )
+
+        if (
+            not bypass_time_it_guard
+            and leaving_time_it
+            and not session.get("time_it_navigation_guard_open", False)
+            and timer_actively_running
+        ):
+            session["time_it_navigation_guard_open"] = True
+
+            def confirm_leave(e):
+                if callable(session.get("time_it_discard_current_session")):
+                    session["time_it_discard_current_session"]()
+                if callable(session.get("time_it_cleanup")):
+                    session["time_it_cleanup"](preserve_progress=False)
+                session["time_it_navigation_guard_open"] = False
+                dialog.open = False
+                page.route = target_route
+                route_change(target_route, bypass_time_it_guard=True)
+
+            def cancel_leave(e):
+                session["time_it_navigation_guard_open"] = False
+                dialog.open = False
+                page.route = current_route
+                route_change(current_route, bypass_time_it_guard=True)
+
+            dialog = ft.AlertDialog(
+                modal=True,
+                title=ft.Text("Timer Running"),
+                content=ft.Text(
+                    "Timer is running. Navigating away will stop and discard the current session. Continue?"
+                ),
+                actions=[
+                    ft.TextButton("Cancel", on_click=cancel_leave),
+                    ft.ElevatedButton("Yes", on_click=confirm_leave),
+                ],
+                actions_alignment=ft.MainAxisAlignment.END,
+            )
+            page.dialog = dialog
+            dialog.open = True
+            page.update()
+            return
+
+        if not bypass_time_it_guard and leaving_time_it and has_active_progress:
+            if callable(session.get("time_it_cleanup")):
+                session["time_it_cleanup"](preserve_progress=True)
         
         # Special case: If user needs onboarding, redirect
         if not session["onboarding_completed"] and page.route not in ("/onboarding", "/login", "/admin", "/settings"):
@@ -64,8 +121,8 @@ def main(page: ft.Page):
             main_content.content = DashboardPage(page, session)   # returns a Container
         elif page.route == "/tasks":
             main_content.content = TasksPage(page, session)
-        elif page.route == "/log_hours":
-            main_content.content = LogHoursPage(page)
+        elif page.route == "/time_it":
+            main_content.content = TimeItPage(page, session)
         elif page.route == "/settings":
             main_content.content = SettingsPage(page, session)
         elif page.route == "/admin":
@@ -98,6 +155,7 @@ def main(page: ft.Page):
         else:
             main_content.content = DashboardPage(page, session)
 
+        session["current_route"] = page.route
         page.update()
     
     # Set up route change handler

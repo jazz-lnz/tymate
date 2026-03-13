@@ -181,11 +181,13 @@ def TasksPage(page: ft.Page, session: dict = None):
                 or q in t.category.lower()
             ]
 
-        task_actual_times = {
-            task.id: session_manager.get_total_minutes_for_task(task.id)
-            for task in tasks
-            if task.id is not None and task.status == "Completed"
-        }
+        task_actual_times = {}
+        for task in tasks:
+            if task.id is None:
+                continue
+            sessions = session_manager.get_sessions_for_task(task.id)
+            task.sessions = sessions
+            task_actual_times[task.id] = task.compute_actual_minutes(sessions)
 
         # Sort tasks by date_due (earliest first)
         tasks.sort(key=lambda t: t.date_due if t.date_due else "9999-12-31")
@@ -254,6 +256,7 @@ def TasksPage(page: ft.Page, session: dict = None):
             "Not Started": ft.Colors.GREY_400,
             "In Progress": ft.Colors.BLUE_400,
             "Completed": ft.Colors.GREEN_600,
+                "Started": ft.Colors.BLUE_300,
         }
         
         # Check if overdue
@@ -292,7 +295,7 @@ def TasksPage(page: ft.Page, session: dict = None):
                                     icon_color=ft.Colors.BLUE_600,
                                     on_click=lambda e, t=task: set_in_progress(t),
                                     tooltip="Mark in progress",
-                                    visible=not task.is_deleted and task.status not in ("In Progress", "Completed"),
+                                        visible=not task.is_deleted and task.status not in ("Started", "In Progress", "Completed"),
                                 ),
                                 ft.IconButton(
                                     icon=ft.Icons.EDIT_OUTLINED,
@@ -364,12 +367,11 @@ def TasksPage(page: ft.Page, session: dict = None):
                                     size=12,
                                     color=ft.Colors.GREY_600,
                                 ) if task.estimated_time is not None else ft.Container(),
-                                ft.Text(
-                                    f"Actual: {format_minutes(actual_minutes)}",
-                                    size=12,
-                                    color=ft.Colors.GREY_600,
-                                    visible=task.status == "Completed",
-                                ),
+                                    ft.Text(
+                                        f"Actual: {format_minutes(actual_minutes)}" if actual_minutes > 0 else "",
+                                        size=12,
+                                        color=ft.Colors.GREY_600,
+                                    ),
                             ],
                             spacing=8,
                             wrap=True,
@@ -457,7 +459,7 @@ def TasksPage(page: ft.Page, session: dict = None):
                             icon_color=ft.Colors.BLUE_600,
                             on_click=lambda e, t=task: set_in_progress(t),
                             tooltip="Mark in progress",
-                            visible=not task.is_deleted and task.status not in ("In Progress", "Completed"),
+                            visible=not task.is_deleted and task.status not in ("Started", "In Progress", "Completed"),
                         ),
 
                         # Time info
@@ -468,12 +470,12 @@ def TasksPage(page: ft.Page, session: dict = None):
                             width=100,
                         ) if task.estimated_time is not None else ft.Container(),
 
-                        ft.Text(
-                            f"Actual: {format_minutes(actual_minutes)}" if task.status == "Completed" else "",
-                            size=12,
-                            color=ft.Colors.GREY_600,
-                            width=110,
-                        ) if task.status == "Completed" else ft.Container(),
+                            ft.Text(
+                                f"Actual: {format_minutes(actual_minutes)}" if actual_minutes > 0 else "",
+                                size=12,
+                                color=ft.Colors.GREY_600,
+                                width=110,
+                            ),
                         
                         # Completion date
                         ft.Text(
@@ -520,8 +522,9 @@ def TasksPage(page: ft.Page, session: dict = None):
             # Show dialog to enter actual time
             show_complete_dialog(task)
         else:
-            # Unmark as complete
-            task_manager.update_task(task.id, status="Not Started")
+            # Only unmark completed tasks; keep non-completed statuses unchanged.
+            if task.status == "Completed":
+                task_manager.update_task(task.id, status="Not Started", completed_at=None)
             load_tasks(current_filter)
 
     def set_in_progress(task):
@@ -533,11 +536,11 @@ def TasksPage(page: ft.Page, session: dict = None):
 
     def show_complete_dialog(task):
         """Show dialog to mark task complete and enter actual time"""
+        existing_minutes = session_manager.get_total_minutes_for_task(task.id) if task.id is not None else 0
         
         time_spent_field = ft.TextField(
-            label="Time spent (optional)",
+            label="Additional time spent (optional)",
             width=300,
-            value=str(task.estimated_time) if task.estimated_time is not None else "",
             hint_text="e.g., 90m, 2h 30m, 1.5h",
             border_color=ft.Colors.GREY_400,
         )
@@ -553,7 +556,7 @@ def TasksPage(page: ft.Page, session: dict = None):
                 page.update()
                 return
             
-            # Mark as complete
+            # Mark as complete and only add extra minutes entered in this dialog.
             task_manager.mark_complete(task.id, duration_minutes=actual_minutes)
             dialog.open = False
             load_tasks(current_filter)
@@ -562,6 +565,12 @@ def TasksPage(page: ft.Page, session: dict = None):
         def skip_time(e):
             # Mark complete without time
             task_manager.mark_complete(task.id)
+            dialog.open = False
+            load_tasks(current_filter)
+            page.update()
+
+        def cancel_completion(e):
+            # Rebuild list so checkbox reflects actual task status after cancel.
             dialog.open = False
             load_tasks(current_filter)
             page.update()
@@ -578,6 +587,16 @@ def TasksPage(page: ft.Page, session: dict = None):
                     ),
                     ft.Text("How much time did you actually spend?", size=13, color=ft.Colors.GREY_700),
                     ft.Container(height=4),
+                    ft.Text(
+                        f"Already logged from sessions: {format_minutes(existing_minutes)}",
+                        size=12,
+                        color=ft.Colors.BLUE_700,
+                    ),
+                    ft.Text(
+                        "Enter only additional time not yet logged (optional).",
+                        size=11,
+                        color=ft.Colors.GREY_600,
+                    ),
                     time_spent_field,
                     ft.Text(
                         f"Estimated: {format_minutes(task.estimated_time)}" if task.estimated_time is not None else "",
@@ -592,7 +611,7 @@ def TasksPage(page: ft.Page, session: dict = None):
                 spacing=8,
             ),
             actions=[
-                ft.TextButton("Cancel", on_click=lambda e: setattr(dialog, 'open', False) or page.update()),
+                ft.TextButton("Cancel", on_click=cancel_completion),
                 ft.TextButton("Skip Time", on_click=skip_time),
                 ft.ElevatedButton(
                     "Complete",

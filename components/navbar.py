@@ -77,12 +77,12 @@ def create_navbar(page: ft.Page, current_route: str, session: dict, route_change
                 on_click=lambda _: navigate_to("/tasks"),
             ),
             ft.TextButton(
-                "Log Hours",
+                "Time It",
                 style=ft.ButtonStyle(
-                    color=ft.Colors.ORANGE_400 if is_active("/log_hours") else ft.Colors.WHITE,
+                    color=ft.Colors.ORANGE_400 if is_active("/time_it") else ft.Colors.WHITE,
                     text_style=ft.TextStyle(size=16, weight=ft.FontWeight.W_600),
                 ),
-                on_click=lambda _: navigate_to("/log_hours"),
+                on_click=lambda _: navigate_to("/time_it"),
             ),
         ])
     

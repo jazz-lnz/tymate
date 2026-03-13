@@ -51,8 +51,8 @@ class OnboardingManager:
     @staticmethod
     def get_hours_until_bedtime(current_time, wake_time, sleep_hours):
         """
-        Calculate hours from current time until next bedtime.
-        Handles edge case where bedtime is early morning (e.g., 2 AM from 7 AM wake with 5h sleep).
+        Calculate signed hours from current time until bedtime for the current wake cycle.
+        Positive means bedtime is upcoming, negative means bedtime already passed.
         
         Args:
             current_time: Current datetime
@@ -62,18 +62,18 @@ class OnboardingManager:
         Returns:
             Hours until next bedtime (positive value)
         """
-        bedtime = OnboardingManager.calculate_bedtime(wake_time, sleep_hours)
-        
+        waking_hours = 24 - sleep_hours
         today = current_time.date()
-        bed_today = datetime.combine(today, bedtime)
-        
-        # Critical fix: If bedtime is before current time (e.g., 2 AM when it's 9 AM),
-        # bedtime already happened - the next bedtime is tomorrow
-        if bed_today <= current_time:
-            bed_today = bed_today + timedelta(days=1)
-        
-        hours = (bed_today - current_time).total_seconds() / 3600
-        return hours
+        wake_today = datetime.combine(today, wake_time)
+
+        # Use the latest wake time not in the future as cycle anchor.
+        if current_time >= wake_today:
+            wake_anchor = wake_today
+        else:
+            wake_anchor = wake_today - timedelta(days=1)
+
+        bedtime_dt = wake_anchor + timedelta(hours=waking_hours)
+        return (bedtime_dt - current_time).total_seconds() / 3600
     
     @staticmethod
     def get_hours_since_wake(current_time: datetime, wake_time: time) -> float:
@@ -387,46 +387,21 @@ class OnboardingManager:
         wake_time = self.parse_wake_time(budget["wake_time"])
         sleep_hours = budget["sleep_hours"]
         
-        # Calculate time metrics with pre-wake handling
+        # Simple and stable model:
+        # remaining day time is based on hours until bedtime for the current wake cycle.
         today = current_time.date()
         wake_dt_today = datetime.combine(today, wake_time)
-        
-        # For evening wake times (noon or later), reference yesterday's wake
-        if wake_time.hour >= 12:
-            # Evening wake time (e.g., 11 PM)
-            yesterday = today - timedelta(days=1)
-            wake_dt_reference = datetime.combine(yesterday, wake_time)
-            
-            # Check if we're still within the same "day" (after yesterday's evening wake)
-            if current_time >= wake_dt_reference:
-                is_before_wake = False
-                hours_since_wake = (current_time - wake_dt_reference).total_seconds() / 3600
-                hours_until_wake = 0.0
-                # Bedtime is sleep_hours after yesterday's wake
-                bedtime_obj = self.calculate_bedtime(wake_time, sleep_hours)
-                bed_dt = datetime.combine(today, bedtime_obj)
-                if current_time >= bed_dt:
-                    # Past bedtime, calculate for tomorrow
-                    bed_dt = datetime.combine(today + timedelta(days=1), bedtime_obj)
-                hours_until_bedtime = (bed_dt - current_time).total_seconds() / 3600
-            else:
-                # Before yesterday's evening wake (shouldn't happen but fallback)
-                is_before_wake = True
-                hours_until_wake = (wake_dt_today - current_time).total_seconds() / 3600
-                hours_since_wake = 0.0
-                hours_until_bedtime = budget["waking_hours_per_day"]
+        hours_since_wake = self.get_hours_since_wake(current_time, wake_time)
+        is_before_wake = current_time < wake_dt_today and hours_since_wake <= 0
+
+        if is_before_wake:
+            hours_until_wake = (wake_dt_today - current_time).total_seconds() / 3600
+            # Before wake, the upcoming day still has full waking hours available.
+            hours_until_bedtime = budget["waking_hours_per_day"]
+            hours_since_wake = 0.0
         else:
-            # Morning wake time (standard case)
-            if current_time < wake_dt_today:
-                is_before_wake = True
-                hours_until_wake = (wake_dt_today - current_time).total_seconds() / 3600
-                hours_since_wake = 0.0
-                hours_until_bedtime = budget["waking_hours_per_day"]
-            else:
-                is_before_wake = False
-                hours_until_wake = 0.0
-                hours_since_wake = self.get_hours_since_wake(current_time, wake_time)
-                hours_until_bedtime = self.get_hours_until_bedtime(current_time, wake_time, sleep_hours)
+            hours_until_wake = 0.0
+            hours_until_bedtime = self.get_hours_until_bedtime(current_time, wake_time, sleep_hours)
         
         # Calculate remaining free time
         free_hours_budget = budget["free_hours_per_day"]

@@ -1,4 +1,5 @@
 from datetime import datetime
+import json
 from typing import List, Optional
 from storage.sqlite import get_database
 from models.session import Session
@@ -10,6 +11,30 @@ class SessionManager:
 
     def __init__(self):
         self.db = get_database()
+
+    def _log_task_event(
+        self,
+        user_id: int,
+        task_id: int,
+        event_type: str,
+        message: Optional[str] = None,
+        metadata: Optional[dict] = None,
+    ):
+        """Write task-related event entry from session operations."""
+        try:
+            self.db.insert(
+                "task_events",
+                {
+                    "user_id": user_id,
+                    "task_id": task_id,
+                    "event_type": event_type,
+                    "message": message,
+                    "metadata": json.dumps(metadata or {}),
+                    "created_at": datetime.now().isoformat(),
+                },
+            )
+        except Exception:
+            pass
 
     def add_session(
         self,
@@ -37,7 +62,7 @@ class SessionManager:
             session_id = self.db.insert("task_sessions", session_data)
             session.id = session_id
 
-            self.db.update(
+            updated_rows = self.db.update(
                 "tasks",
                 {
                     "status": "In Progress",
@@ -46,6 +71,25 @@ class SessionManager:
                 "id = ? AND status = ? AND is_deleted = 0",
                 (task_id, "Not Started"),
             )
+
+            self._log_task_event(
+                user_id=user_id,
+                task_id=task_id,
+                event_type="TASK_SESSION_LOGGED",
+                message="Session logged",
+                metadata={
+                    "duration_minutes": duration_minutes,
+                    "notes": notes,
+                },
+            )
+
+            if updated_rows:
+                self._log_task_event(
+                    user_id=user_id,
+                    task_id=task_id,
+                    event_type="TASK_STARTED",
+                    message="Task auto-started from first session",
+                )
 
             if task is not None:
                 if task.sessions is None:
@@ -126,6 +170,11 @@ class SessionManager:
     def delete_session(self, session_id: int) -> tuple[bool, str]:
         """Soft delete a session (mark as deleted)."""
         try:
+            existing = self.db.fetch_one(
+                "SELECT user_id, task_id, duration_minutes, notes FROM task_sessions WHERE id = ?",
+                (session_id,),
+            )
+
             self.db.update(
                 "task_sessions",
                 {
@@ -135,6 +184,18 @@ class SessionManager:
                 "id = ?",
                 (session_id,),
             )
+
+            if existing:
+                self._log_task_event(
+                    user_id=existing["user_id"],
+                    task_id=existing["task_id"],
+                    event_type="TASK_SESSION_DELETED",
+                    message="Session deleted",
+                    metadata={
+                        "duration_minutes": existing.get("duration_minutes"),
+                        "notes": existing.get("notes"),
+                    },
+                )
             return True, "Session deleted successfully"
         except Exception as exc:
             return False, f"Failed to delete session: {str(exc)}"

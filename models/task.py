@@ -17,10 +17,14 @@ class Task:
         source: Who assigned it (course name, workplace, or "Personal") *REQUIRED*
         category: Type of task *REQUIRED* - fixed options
         date_given: When task was assigned (YYYY-MM-DD) *REQUIRED*
-        date_due: Due date (YYYY-MM-DD) *REQUIRED*
+        date_due: Due date (YYYY-MM-DD) (optional)
         description: Detailed description (optional)
         estimated_time: Estimated minutes to complete (optional)
         status: Current status (Not Started, In Progress, Completed)
+        is_recurring: Whether this task repeats automatically
+        recurrence_type: Repeat cadence (daily, weekly, monthly)
+        recurrence_interval: Repeat interval multiplier (e.g., every 2 weeks)
+        recurrence_until: Last date allowed for generating next occurrence (YYYY-MM-DD)
         completed_at: When task was completed
         created_at: When task was created in system
         updated_at: Last modification time
@@ -34,7 +38,7 @@ class Task:
     source: str  # Course name, Workplace, or "Personal" - free text
     category: str  # Must be one of CATEGORIES
     date_given: str  # YYYY-MM-DD
-    date_due: str  # YYYY-MM-DD
+    date_due: Optional[str]  # YYYY-MM-DD
     
     # Optional fields
     id: Optional[int] = None
@@ -42,6 +46,10 @@ class Task:
     estimated_time: Optional[int] = None
     sessions: Optional[list["Session"]] = None
     status: str = "Not Started"
+    is_recurring: bool = False
+    recurrence_type: Optional[str] = None
+    recurrence_interval: int = 1
+    recurrence_until: Optional[str] = None
     completed_at: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
@@ -69,6 +77,10 @@ class Task:
             "description": self.description,
             "estimated_time": self.estimated_time,
             "status": self.status,
+            "is_recurring": 1 if self.is_recurring else 0,
+            "recurrence_type": self.recurrence_type,
+            "recurrence_interval": self.recurrence_interval,
+            "recurrence_until": self.recurrence_until,
             "completed_at": self.completed_at,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
@@ -86,10 +98,14 @@ class Task:
             source=data["source"],
             category=data["category"],
             date_given=data["date_given"],
-            date_due=data["date_due"],
+            date_due=data.get("date_due"),
             description=data.get("description"),
             estimated_time=data.get("estimated_time"),
             status=data.get("status", "Not Started"),
+            is_recurring=bool(data.get("is_recurring", 0)),
+            recurrence_type=data.get("recurrence_type"),
+            recurrence_interval=int(data.get("recurrence_interval", 1) or 1),
+            recurrence_until=data.get("recurrence_until"),
             completed_at=data.get("completed_at"),
             created_at=data.get("created_at"),
             updated_at=data.get("updated_at"),

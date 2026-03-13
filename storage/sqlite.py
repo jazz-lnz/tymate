@@ -158,10 +158,14 @@ class Database:
                 source TEXT NOT NULL,
                 category TEXT NOT NULL,
                 date_given TEXT NOT NULL,
-                date_due TEXT NOT NULL,
+                date_due TEXT,
                 description TEXT,
                 estimated_time INTEGER,
                 status TEXT DEFAULT 'Not Started',
+                is_recurring INTEGER DEFAULT 0,
+                recurrence_type TEXT,
+                recurrence_interval INTEGER DEFAULT 1,
+                recurrence_until TEXT,
                 completed_at TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
@@ -228,6 +232,21 @@ class Database:
                 created_at TEXT NOT NULL,
                 is_deleted INTEGER DEFAULT 0,
                 deleted_at TEXT,
+                FOREIGN KEY (user_id) REFERENCES users (id),
+                FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE
+            )
+        """)
+
+        # Task events table (task lifecycle timeline)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS task_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                task_id INTEGER NOT NULL,
+                event_type TEXT NOT NULL,
+                message TEXT,
+                metadata TEXT,
+                created_at TEXT NOT NULL,
                 FOREIGN KEY (user_id) REFERENCES users (id),
                 FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE
             )
@@ -342,6 +361,9 @@ class Database:
                 FOREIGN KEY (user_id) REFERENCES users(id)
             )
         """)
+
+        self._migrate_tasks_date_due_nullable()
+        self._migrate_tasks_recurring_columns()
         
         self.connection.commit()
         
@@ -375,6 +397,84 @@ class Database:
         )
 
         self.connection.commit()
+
+    def _migrate_tasks_date_due_nullable(self):
+        """Allow tasks.date_due to be NULL for existing databases."""
+        cursor = self.connection.cursor()
+        columns = cursor.execute("PRAGMA table_info(tasks)").fetchall()
+        column_names = {col[1] for col in columns}
+        date_due_info = next((col for col in columns if col[1] == "date_due"), None)
+        if not date_due_info:
+            return
+
+        # PRAGMA table_info columns: cid, name, type, notnull, dflt_value, pk
+        if date_due_info[3] == 0:
+            return
+
+        cursor.execute("PRAGMA foreign_keys = OFF")
+        cursor.execute("BEGIN TRANSACTION")
+        cursor.execute("""
+            CREATE TABLE tasks_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                source TEXT NOT NULL,
+                category TEXT NOT NULL,
+                date_given TEXT NOT NULL,
+                date_due TEXT,
+                description TEXT,
+                estimated_time INTEGER,
+                status TEXT DEFAULT 'Not Started',
+                is_recurring INTEGER DEFAULT 0,
+                recurrence_type TEXT,
+                recurrence_interval INTEGER DEFAULT 1,
+                recurrence_until TEXT,
+                completed_at TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                is_deleted INTEGER DEFAULT 0,
+                deleted_at TEXT,
+                FOREIGN KEY (user_id) REFERENCES users (id)
+            )
+        """)
+        cursor.execute("""
+            INSERT INTO tasks_new (
+                id, user_id, title, source, category, date_given, date_due,
+                description, estimated_time, status, is_recurring, recurrence_type,
+                recurrence_interval, recurrence_until, completed_at, created_at,
+                updated_at, is_deleted, deleted_at
+            )
+            SELECT
+                id, user_id, title, source, category, date_given, date_due,
+                description, estimated_time, status,
+                {is_recurring_expr}, {recurrence_type_expr}, {recurrence_interval_expr}, {recurrence_until_expr},
+                completed_at, created_at,
+                updated_at, is_deleted, deleted_at
+            FROM tasks
+        """.format(
+            is_recurring_expr="is_recurring" if "is_recurring" in column_names else "0",
+            recurrence_type_expr="recurrence_type" if "recurrence_type" in column_names else "NULL",
+            recurrence_interval_expr="recurrence_interval" if "recurrence_interval" in column_names else "1",
+            recurrence_until_expr="recurrence_until" if "recurrence_until" in column_names else "NULL",
+        ))
+        cursor.execute("DROP TABLE tasks")
+        cursor.execute("ALTER TABLE tasks_new RENAME TO tasks")
+        cursor.execute("COMMIT")
+        cursor.execute("PRAGMA foreign_keys = ON")
+
+    def _migrate_tasks_recurring_columns(self):
+        """Add recurring task columns to existing databases if missing."""
+        cursor = self.connection.cursor()
+        columns = {col[1] for col in cursor.execute("PRAGMA table_info(tasks)").fetchall()}
+
+        if "is_recurring" not in columns:
+            cursor.execute("ALTER TABLE tasks ADD COLUMN is_recurring INTEGER DEFAULT 0")
+        if "recurrence_type" not in columns:
+            cursor.execute("ALTER TABLE tasks ADD COLUMN recurrence_type TEXT")
+        if "recurrence_interval" not in columns:
+            cursor.execute("ALTER TABLE tasks ADD COLUMN recurrence_interval INTEGER DEFAULT 1")
+        if "recurrence_until" not in columns:
+            cursor.execute("ALTER TABLE tasks ADD COLUMN recurrence_until TEXT")
     
     # ==================== Basic CRUD Operations ====================
     

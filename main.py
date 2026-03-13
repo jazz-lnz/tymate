@@ -5,6 +5,7 @@ from components.navbar import create_navbar
 from views.dashboard import DashboardPage
 from views.login import LoginPage
 from views.tasks import TasksPage
+from views.task_details import TaskDetailsPage
 from views.time_it import TimeItPage
 from views.settings import SettingsPage
 from views.onboarding import OnboardingPage
@@ -108,6 +109,7 @@ def main(page: ft.Page):
         
         # Clear and rebuild
         page.controls.clear()
+        session["route_change"] = route_change
         
         # Don't show navbar on login or onboarding pages
         if page.route not in ("/login", "/onboarding"):
@@ -120,7 +122,19 @@ def main(page: ft.Page):
         if page.route in ("/", "/dashboard"):
             main_content.content = DashboardPage(page, session)   # returns a Container
         elif page.route == "/tasks":
+            session["task_details_create_mode"] = False
             main_content.content = TasksPage(page, session)
+        elif page.route == "/tasks/new":
+            session["task_details_create_mode"] = True
+            session["selected_task_id"] = None
+            main_content.content = TaskDetailsPage(page, session)
+        elif page.route.startswith("/tasks/"):
+            session["task_details_create_mode"] = False
+            try:
+                session["selected_task_id"] = int(page.route.split("/")[-1])
+                main_content.content = TaskDetailsPage(page, session)
+            except (TypeError, ValueError):
+                main_content.content = TasksPage(page, session)
         elif page.route == "/time_it":
             main_content.content = TimeItPage(page, session)
         elif page.route == "/settings":

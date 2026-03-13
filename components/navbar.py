@@ -15,7 +15,7 @@ def create_navbar(page: ft.Page, current_route: str, session: dict, route_change
     
     # Determine active tab styling
     def is_active(route):
-        return current_route == route
+        return current_route == route or (route == "/tasks" and current_route.startswith("/tasks/"))
     
     # Online/Offline status indicator
     status_text = "Online" if session["is_online"] else "Offline"

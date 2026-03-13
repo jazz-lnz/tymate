@@ -1,11 +1,10 @@
 import flet as ft
-from datetime import datetime
+from datetime import datetime, timedelta
 import time
 import threading
 from state.task_manager import TaskManager
-from state.session_manager import SessionManager
 from models.task import CATEGORIES, STATUSES
-from utils.time_helpers import format_minutes, parse_time_input
+from utils.time_helpers import format_minutes
 
 def TasksPage(page: ft.Page, session: dict = None):
     """
@@ -25,27 +24,36 @@ def TasksPage(page: ft.Page, session: dict = None):
         )
     
     task_manager = TaskManager()
-    session_manager = SessionManager()
     user_id = session["user"].id
+    EST_COLUMN_WIDTH = 130
+    CATEGORY_COLUMN_WIDTH = 170
+    STATUS_COLUMN_WIDTH = 115
+    DUE_COLUMN_WIDTH = 130
+    REPEAT_COLUMN_WIDTH = 120
 
     # Add database lock to prevent recursive cursor usage
     db_lock = threading.Lock()
     
     search_query = "" # for search button
 
-    # Current filter
-    current_filter = "All"
+    # Current filter (due-date based)
+    current_filter = "week"
     # Current sort option
     sort_option = "Date"
     
     # Track current tasks for responsive rebuild
     current_tasks = []
-    task_actual_times = {}
     
     # Get current date/time
     now = datetime.now()
     time_text = ft.Text(now.strftime("%I:%M:%S %p"), size=48, weight=ft.FontWeight.W_700, color=ft.Colors.GREY_900)
     date_text = ft.Text(now.strftime("%A, %B %d. %Y"), size=16, color=ft.Colors.GREY_600)
+
+    def go_to(route: str):
+        page.route = route
+        route_change = session.get("route_change") if session else None
+        if callable(route_change):
+            route_change(route)
 
     def update_time():
         while True:
@@ -80,10 +88,40 @@ def TasksPage(page: ft.Page, session: dict = None):
     
     # Total time display (define before load_tasks)
     total_time_text = ft.Text(format_minutes(0), size=18, weight=ft.FontWeight.W_700, color=ft.Colors.GREY_900)
-    total_time_label = ft.Text("Total Est. Time (Due/Payable)", size=13, color=ft.Colors.GREY_700, weight=ft.FontWeight.W_600)
+    total_time_label = ft.Text("Total Estimated Time", size=13, color=ft.Colors.GREY_700, weight=ft.FontWeight.W_600)
     
     # Status message display
     status_message_text = ft.Text("", size=13, color=ft.Colors.GREY_700, weight=ft.FontWeight.W_500)
+    feedback_dialog = None
+
+    def show_action_feedback(message: str, kind: str = "info"):
+        """Show transient action feedback (success/error/info)."""
+        nonlocal feedback_dialog
+        color_map = {
+            "success": ft.Colors.GREEN_700,
+            "error": ft.Colors.RED_700,
+            "warning": ft.Colors.ORANGE_700,
+            "info": ft.Colors.BLUE_700,
+        }
+        title_map = {
+            "success": "Success",
+            "error": "Error",
+            "warning": "Warning",
+            "info": "Notice",
+        }
+
+        if feedback_dialog is not None:
+            feedback_dialog.open = False
+
+        feedback_dialog = ft.AlertDialog(
+            title=ft.Text(title_map.get(kind, "Notice"), color=color_map.get(kind, ft.Colors.BLUE_700)),
+            content=ft.Text(message),
+            actions=[
+                ft.TextButton("OK", on_click=lambda e: setattr(feedback_dialog, "open", False) or page.update()),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        page.open(feedback_dialog)
     
     def get_status_message():
         """Get time status message similar to dashboard"""
@@ -145,6 +183,34 @@ def TasksPage(page: ft.Page, session: dict = None):
         if total_time_text.page is not None:
             total_time_text.update()
 
+    def parse_due_date(task):
+        """Parse task due date (YYYY-MM-DD) into a date object."""
+        if not task.date_due:
+            return None
+        try:
+            return datetime.strptime(task.date_due, "%Y-%m-%d").date()
+        except (TypeError, ValueError):
+            return None
+
+    def is_in_current_due_filter(task):
+        """Return True if task matches the selected due-date window."""
+        due_date = parse_due_date(task)
+        if current_filter == "all":
+            return True
+        if due_date is None:
+            return False
+
+        today = datetime.now().date()
+        if current_filter == "today":
+            return due_date == today
+        if current_filter == "week":
+            week_start = today - timedelta(days=today.weekday())
+            next_week_start = week_start + timedelta(days=7)
+            return week_start <= due_date < next_week_start
+        if current_filter == "overdue":
+            return due_date < today and task.status != "Completed"
+        return True
+
     def load_tasks(filter_status=None):
         # Acquire lock before database operations - prevents app freeze due to recursive cursor use
         with db_lock:
@@ -161,15 +227,14 @@ def TasksPage(page: ft.Page, session: dict = None):
             if task_list_container.page is not None:
                 task_list_container.update()
 
-            nonlocal current_filter, search_query, task_actual_times
-            current_filter = filter_status or "All"
+            nonlocal current_filter, search_query
+            current_filter = filter_status or "all"
 
             # Load all tasks from your TaskManager
             tasks = task_manager.get_user_tasks(user_id, include_deleted=False)
 
-        # Apply status filtering
-        if current_filter != "All":
-            tasks = [t for t in tasks if t.status == current_filter]
+        # Apply due-date filtering
+        tasks = [t for t in tasks if is_in_current_due_filter(t)]
 
         # Apply search filter
         if search_query.strip() != "":
@@ -180,14 +245,6 @@ def TasksPage(page: ft.Page, session: dict = None):
                 or q in t.source.lower()
                 or q in t.category.lower()
             ]
-
-        task_actual_times = {}
-        for task in tasks:
-            if task.id is None:
-                continue
-            sessions = session_manager.get_sessions_for_task(task.id)
-            task.sessions = sessions
-            task_actual_times[task.id] = task.compute_actual_minutes(sessions)
 
         # Sort tasks by date_due (earliest first)
         tasks.sort(key=lambda t: t.date_due if t.date_due else "9999-12-31")
@@ -240,17 +297,6 @@ def TasksPage(page: ft.Page, session: dict = None):
     def create_task_card(task):
         """Create a task card UI element (Minimalist line-based design - responsive with wrapping)"""
         
-        # Category badge color
-        category_colors = {
-            "quiz": ft.Colors.BLUE_300,
-            "learning task (individual)": ft.Colors.GREEN_400,
-            "learning task (group)": ft.Colors.GREEN_500,
-            "project (individual)": ft.Colors.ORANGE_400,
-            "project (group)": ft.Colors.ORANGE_500,
-            "study/review": ft.Colors.PURPLE_400,
-            "others": ft.Colors.GREY_500,
-        }
-        
         # Status badge color
         status_colors = {
             "Not Started": ft.Colors.GREY_400,
@@ -259,10 +305,15 @@ def TasksPage(page: ft.Page, session: dict = None):
                 "Started": ft.Colors.BLUE_300,
         }
         
+        due_label = f"Due: {task.date_due}" if task.date_due else "Due: No due date"
+        recurrence_label = ""
+        if task.is_recurring and task.recurrence_type:
+            recurrence_label = f"Repeats: {task.recurrence_type.title()}"
+            if task.recurrence_until:
+                recurrence_label += f" until {task.recurrence_until}"
+
         # Check if overdue
         is_overdue = task.is_overdue()
-        actual_minutes = task_actual_times.get(task.id, 0)
-        
         # Responsive: stack on mobile, single row on desktop
         is_mobile = page.window.width < 768
         
@@ -271,57 +322,47 @@ def TasksPage(page: ft.Page, session: dict = None):
             return ft.Container(
                 content=ft.Column(
                     controls=[
-                        # First row: checkbox, source, spacer, edit/delete buttons
+                        # First row: source and status summary
                         ft.Row(
                             controls=[
-                                ft.Checkbox(
-                                    value=(task.status == "Completed"),
-                                    on_change=lambda e, t=task: toggle_complete(t, e.control.value),
-                                    fill_color={
-                                        ft.ControlState.DEFAULT: ft.Colors.GREY_400,
-                                        ft.ControlState.SELECTED: ft.Colors.GREY_800,
-                                    },
-                                ),
                                 ft.Text(
                                     task.source,
-                                    size=11,
+                                    size=12,
                                     color=ft.Colors.GREY_600,
                                     weight=ft.FontWeight.W_500,
                                 ),
-                                ft.Container(expand=True),  # Spacer to push buttons to right
-                                ft.IconButton(
-                                    icon=ft.Icons.PLAY_ARROW,
-                                    icon_size=16,
-                                    icon_color=ft.Colors.BLUE_600,
-                                    on_click=lambda e, t=task: set_in_progress(t),
-                                    tooltip="Mark in progress",
-                                        visible=not task.is_deleted and task.status not in ("Started", "In Progress", "Completed"),
-                                ),
-                                ft.IconButton(
-                                    icon=ft.Icons.EDIT_OUTLINED,
-                                    icon_size=16,
-                                    icon_color=ft.Colors.GREY_700,
-                                    on_click=lambda e, t=task: show_edit_dialog(t),
-                                    tooltip="Edit task",
-                                ),
-                                ft.IconButton(
-                                    icon=ft.Icons.DELETE_OUTLINE,
-                                    icon_size=16,
-                                    icon_color=ft.Colors.RED_600,
-                                    on_click=lambda e, tid=task.id: confirm_delete(tid),
-                                    tooltip="Delete task",
+                                ft.Container(expand=True),
+                                ft.Container(
+                                    content=ft.Text(
+                                        task.status,
+                                        size=12,
+                                        color=ft.Colors.WHITE if task.status != "Not Started" else ft.Colors.GREY_800,
+                                        weight=ft.FontWeight.W_500,
+                                    ),
+                                    bgcolor=status_colors.get(task.status, ft.Colors.GREY_300),
+                                    padding=ft.padding.symmetric(horizontal=8, vertical=3),
+                                    border_radius=4,
                                 ),
                             ],
                             spacing=0,
                             vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         ),
                         
-                        # Second row: task title (full width)
-                        ft.Text(
-                            task.title,
-                            size=15,
-                            weight=ft.FontWeight.W_600 if task.status != "Completed" else ft.FontWeight.W_400,
-                            color=ft.Colors.GREY_900 if task.status != "Completed" else ft.Colors.GREY_600,
+                        # Second row: task title opens details
+                        ft.TextButton(
+                            text=task.title,
+                            on_click=lambda e, t=task: open_task_details(t),
+                            style=ft.ButtonStyle(
+                                padding=0,
+                                color={
+                                    ft.ControlState.DEFAULT: ft.Colors.GREY_900 if task.status != "Completed" else ft.Colors.GREY_600,
+                                },
+                                text_style=ft.TextStyle(
+                                    size=17,
+                                    weight=ft.FontWeight.W_600 if task.status != "Completed" else ft.FontWeight.W_400,
+                                ),
+                                overlay_color=ft.Colors.TRANSPARENT,
+                            ),
                         ),
                         
                         # Third row: category, status, due date, time
@@ -330,48 +371,33 @@ def TasksPage(page: ft.Page, session: dict = None):
                                 ft.Container(
                                     content=ft.Text(
                                         task.category, 
-                                        size=11, 
-                                        color=ft.Colors.WHITE,
+                                        size=12,
+                                        color=ft.Colors.GREY_800,
                                         weight=ft.FontWeight.W_500,
                                     ),
-                                    bgcolor=category_colors.get(task.category, ft.Colors.GREY_500),
+                                    bgcolor=ft.Colors.GREY_100,
                                     padding=ft.padding.symmetric(horizontal=8, vertical=3),
                                     border_radius=4,
-                                ),
-                                ft.Container(
-                                    content=ft.Text(
-                                        task.status, 
-                                        size=11, 
-                                        color=ft.Colors.WHITE if task.status != "Not Started" else ft.Colors.GREY_800,
-                                        weight=ft.FontWeight.W_500,
-                                    ),
-                                    bgcolor=status_colors.get(task.status, ft.Colors.GREY_300),
-                                    padding=ft.padding.symmetric(horizontal=8, vertical=3),
-                                    border_radius=4,
+                                    border=ft.border.all(1, ft.Colors.GREY_300),
                                 ),
                                 ft.Text(
-                                    f"Due: {task.date_due}",
-                                    size=12,
+                                    due_label,
+                                    size=13,
                                     color=ft.Colors.RED_600 if is_overdue else ft.Colors.GREY_600,
                                     weight=ft.FontWeight.W_500 if is_overdue else ft.FontWeight.W_400,
                                 ),
                                 ft.Text(
-                                    f"Completed: {task.completed_at[:10]}" if task.completed_at else "",
+                                    recurrence_label,
                                     size=12,
-                                    color=ft.Colors.GREEN_600,
+                                    color=ft.Colors.BLUE_700,
                                     weight=ft.FontWeight.W_500,
-                                    visible=task.status == "Completed" and task.completed_at is not None,
+                                    visible=bool(recurrence_label),
                                 ),
                                 ft.Text(
                                     f"Est: {format_minutes(task.estimated_time)}" if task.estimated_time is not None else "—",
-                                    size=12,
+                                    size=13,
                                     color=ft.Colors.GREY_600,
-                                ) if task.estimated_time is not None else ft.Container(),
-                                    ft.Text(
-                                        f"Actual: {format_minutes(actual_minutes)}" if actual_minutes > 0 else "",
-                                        size=12,
-                                        color=ft.Colors.GREY_600,
-                                    ),
+                                ),
                             ],
                             spacing=8,
                             wrap=True,
@@ -390,119 +416,93 @@ def TasksPage(page: ft.Page, session: dict = None):
             return ft.Container(
                 content=ft.Row(
                     controls=[
-                        # Checkbox
-                        ft.Checkbox(
-                            value=(task.status == "Completed"),
-                            on_change=lambda e, t=task: toggle_complete(t, e.control.value),
-                            fill_color={
-                                ft.ControlState.DEFAULT: ft.Colors.GREY_400,
-                                ft.ControlState.SELECTED: ft.Colors.GREY_800,
-                            },
-                        ),
-                        
                         # Source (before title)
                         ft.Text(
                             task.source,
-                            size=12,
+                            size=13,
                             color=ft.Colors.GREY_700,
-                            width=85,
+                            width=110,
                         ),
                         
-                        # Task title
-                        ft.Text(
-                            task.title,
-                            size=14,
-                            weight=ft.FontWeight.W_600 if task.status != "Completed" else ft.FontWeight.W_400,
-                            color=ft.Colors.GREY_900 if task.status != "Completed" else ft.Colors.GREY_600,
+                        # Task title opens details
+                        ft.TextButton(
+                            text=task.title,
+                            on_click=lambda e, t=task: open_task_details(t),
+                            style=ft.ButtonStyle(
+                                padding=0,
+                                color={
+                                    ft.ControlState.DEFAULT: ft.Colors.GREY_900 if task.status != "Completed" else ft.Colors.GREY_600,
+                                },
+                                text_style=ft.TextStyle(
+                                    size=16,
+                                    weight=ft.FontWeight.W_600 if task.status != "Completed" else ft.FontWeight.W_400,
+                                ),
+                                overlay_color=ft.Colors.TRANSPARENT,
+                                alignment=ft.Alignment(-1, 0),
+                            ),
                             expand=True,
                         ),
                         
-                        # Category badge
+                        # Category label (neutral to avoid status color confusion)
                         ft.Container(
                             content=ft.Text(
                                 task.category, 
-                                size=11, 
-                                color=ft.Colors.WHITE,
+                                size=12,
+                                color=ft.Colors.GREY_800,
                                 weight=ft.FontWeight.W_500,
+                                text_align=ft.TextAlign.CENTER,
                             ),
-                            bgcolor=category_colors.get(task.category, ft.Colors.GREY_500),
+                            bgcolor=ft.Colors.GREY_100,
                             padding=ft.padding.symmetric(horizontal=10, vertical=4),
                             border_radius=5,
+                            border=ft.border.all(1, ft.Colors.GREY_300),
+                            width=CATEGORY_COLUMN_WIDTH,
+                            alignment=ft.alignment.center,
                         ),
                         
                         # Due date
                         ft.Text(
-                            f"Due: {task.date_due}",
-                            size=12,
+                            due_label,
+                            size=13,
                             color=ft.Colors.RED_600 if is_overdue else ft.Colors.GREY_600,
                             weight=ft.FontWeight.W_500 if is_overdue else ft.FontWeight.W_400,
-                            width=100,
+                            width=DUE_COLUMN_WIDTH,
                         ),
                         
                         # Status badge
                         ft.Container(
                             content=ft.Text(
                                 task.status, 
-                                size=11, 
+                                size=12,
                                 color=ft.Colors.WHITE if task.status != "Not Started" else ft.Colors.GREY_800,
                                 weight=ft.FontWeight.W_500,
+                                text_align=ft.TextAlign.CENTER,
                             ),
                             bgcolor=status_colors.get(task.status, ft.Colors.GREY_300),
                             padding=ft.padding.symmetric(horizontal=10, vertical=4),
                             border_radius=5,
+                            width=STATUS_COLUMN_WIDTH,
+                            alignment=ft.alignment.center,
                         ),
 
-                        # Start button to move to In Progress
-                        ft.IconButton(
-                            icon=ft.Icons.PLAY_ARROW,
-                            icon_size=18,
-                            icon_color=ft.Colors.BLUE_600,
-                            on_click=lambda e, t=task: set_in_progress(t),
-                            tooltip="Mark in progress",
-                            visible=not task.is_deleted and task.status not in ("Started", "In Progress", "Completed"),
+                        ft.Text(
+                            recurrence_label,
+                            size=12,
+                            color=ft.Colors.BLUE_700,
+                            weight=ft.FontWeight.W_500,
+                            width=REPEAT_COLUMN_WIDTH,
+                            visible=bool(recurrence_label),
                         ),
 
                         # Time info
                         ft.Text(
                             f"Est: {format_minutes(task.estimated_time)}" if task.estimated_time is not None else "—",
-                            size=12,
+                            size=13,
                             color=ft.Colors.GREY_600,
-                            width=100,
-                        ) if task.estimated_time is not None else ft.Container(),
-
-                            ft.Text(
-                                f"Actual: {format_minutes(actual_minutes)}" if actual_minutes > 0 else "",
-                                size=12,
-                                color=ft.Colors.GREY_600,
-                                width=110,
-                            ),
-                        
-                        # Completion date
-                        ft.Text(
-                            f"Done: {task.completed_at[:10]}" if task.completed_at else "",
-                            size=12,
-                            color=ft.Colors.GREEN_600,
-                            weight=ft.FontWeight.W_500,
-                            width=100,
-                        ) if task.status == "Completed" and task.completed_at else ft.Container(),
-
-                        # Edit button
-                        ft.IconButton(
-                            icon=ft.Icons.EDIT_OUTLINED,
-                            icon_size=18,
-                            icon_color=ft.Colors.GREY_700,
-                            on_click=lambda e, t=task: show_edit_dialog(t),
-                            tooltip="Edit task",
+                            width=EST_COLUMN_WIDTH,
+                            text_align=ft.TextAlign.RIGHT,
                         ),
-                        
-                        # Delete button
-                        ft.IconButton(
-                            icon=ft.Icons.DELETE_OUTLINE,
-                            icon_size=18,
-                            icon_color=ft.Colors.RED_600,
-                            on_click=lambda e, tid=task.id: confirm_delete(tid),
-                            tooltip="Delete task",
-                        ),
+
                     ],
                     alignment=ft.MainAxisAlignment.START,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -516,422 +516,257 @@ def TasksPage(page: ft.Page, session: dict = None):
                 margin=ft.margin.only(bottom=6),
             )
     
-    def toggle_complete(task, is_complete):
-        """Toggle task completion status with actual time prompt"""
-        if is_complete:
-            # Show dialog to enter actual time
-            show_complete_dialog(task)
-        else:
-            # Only unmark completed tasks; keep non-completed statuses unchanged.
-            if task.status == "Completed":
-                task_manager.update_task(task.id, status="Not Started", completed_at=None)
-            load_tasks(current_filter)
+    def show_task_form(task=None):
+        """Unified create/edit task form with date pickers and inline validation."""
+        is_edit = task is not None
 
-    def set_in_progress(task):
-        """Mark a task as in progress without opening the edit dialog"""
-        if task.status == "Completed":
-            return
-        task_manager.update_task(task.id, status="In Progress")
-        load_tasks(current_filter)
-
-    def show_complete_dialog(task):
-        """Show dialog to mark task complete and enter actual time"""
-        existing_minutes = session_manager.get_total_minutes_for_task(task.id) if task.id is not None else 0
-        
-        time_spent_field = ft.TextField(
-            label="Additional time spent (optional)",
-            width=300,
-            hint_text="e.g., 90m, 2h 30m, 1.5h",
-            border_color=ft.Colors.GREY_400,
-        )
-        
-        error_text = ft.Text("", color=ft.Colors.RED_600, size=12)
-        
-        def save_completion(e):
-            raw_input = (time_spent_field.value or "").strip()
-            actual_minutes = parse_time_input(raw_input) if raw_input else None
-
-            if raw_input and actual_minutes is None:
-                error_text.value = "Please enter a valid time (e.g., 90m, 2h 30m, 1.5h)"
-                page.update()
-                return
-            
-            # Mark as complete and only add extra minutes entered in this dialog.
-            task_manager.mark_complete(task.id, duration_minutes=actual_minutes)
-            dialog.open = False
-            load_tasks(current_filter)
-            page.update()
-        
-        def skip_time(e):
-            # Mark complete without time
-            task_manager.mark_complete(task.id)
-            dialog.open = False
-            load_tasks(current_filter)
-            page.update()
-
-        def cancel_completion(e):
-            # Rebuild list so checkbox reflects actual task status after cancel.
-            dialog.open = False
-            load_tasks(current_filter)
-            page.update()
-        
-        dialog = ft.AlertDialog(
-            title=ft.Text("Mark Task as Complete", weight=ft.FontWeight.W_600),
-            content=ft.Column(
-                controls=[
-                    ft.Text(f"Task: {task.title}", weight=ft.FontWeight.W_600, color=ft.Colors.GREY_900),
-                    ft.Container(
-                        height=1,
-                        bgcolor=ft.Colors.GREY_300,
-                        margin=ft.margin.symmetric(vertical=12),
-                    ),
-                    ft.Text("How much time did you actually spend?", size=13, color=ft.Colors.GREY_700),
-                    ft.Container(height=4),
-                    ft.Text(
-                        f"Already logged from sessions: {format_minutes(existing_minutes)}",
-                        size=12,
-                        color=ft.Colors.BLUE_700,
-                    ),
-                    ft.Text(
-                        "Enter only additional time not yet logged (optional).",
-                        size=11,
-                        color=ft.Colors.GREY_600,
-                    ),
-                    time_spent_field,
-                    ft.Text(
-                        f"Estimated: {format_minutes(task.estimated_time)}" if task.estimated_time is not None else "",
-                        size=12,
-                        color=ft.Colors.GREY_600,
-                        visible=task.estimated_time is not None,
-                    ),
-                    error_text,
-                ],
-                width=350,
-                tight=True,
-                spacing=8,
-            ),
-            actions=[
-                ft.TextButton("Cancel", on_click=cancel_completion),
-                ft.TextButton("Skip Time", on_click=skip_time),
-                ft.ElevatedButton(
-                    "Complete",
-                    bgcolor=ft.Colors.GREY_800,
-                    color=ft.Colors.WHITE,
-                    on_click=save_completion,
-                ),
-            ],
-        )
-        
-        page.open(dialog)
-        page.update()
-    
-    def show_add_dialog(e):
-        """Show dialog to add new task"""
-        
-        title_field = ft.TextField(label="Task Title *", width=400, border_color=ft.Colors.GREY_400)
+        title_field = ft.TextField(label="Title *", width=420, value=task.title if is_edit else "", border_color=ft.Colors.GREY_400)
         source_field = ft.TextField(
-            label="Source (Course/Workplace/Personal) *",
-            width=400,
+            label="Source *",
+            width=420,
+            value=task.source if is_edit else "",
             hint_text="e.g., CS 319, Starbucks, Personal",
-            border_color=ft.Colors.GREY_400,
-        )
-        description_field = ft.TextField(
-            label="Description",
-            multiline=True,
-            min_lines=2,
-            max_lines=4,
-            width=400,
+            helper_text="Use consistent source names for cleaner grouping.",
             border_color=ft.Colors.GREY_400,
         )
         category_dropdown = ft.Dropdown(
             label="Category *",
-            width=400,
+            width=420,
             options=[ft.dropdown.Option(cat) for cat in CATEGORIES],
-            value="others",
+            value=task.category if is_edit else "others",
             border_color=ft.Colors.GREY_400,
         )
+
         date_given_field = ft.TextField(
-            label="Date Given (YYYY-MM-DD) *",
-            width=190,
-            value=datetime.now().strftime("%Y-%m-%d"),
+            label="Date Given *",
+            width=300,
+            value=(task.date_given if is_edit else datetime.now().strftime("%Y-%m-%d")),
             border_color=ft.Colors.GREY_400,
         )
         due_date_field = ft.TextField(
-            label="Due Date (YYYY-MM-DD) *",
-            width=190,
-            hint_text="e.g., 2025-12-31",
+            label="Due Date (optional)",
+            width=300,
+            value=(task.date_due if is_edit else ""),
+            hint_text="YYYY-MM-DD",
             border_color=ft.Colors.GREY_400,
         )
+
+        def build_date_input(target_field: ft.TextField, label: str):
+            target_field.label = label
+            target_field.expand = True
+            target_field.read_only = True
+            target_field.filled = True
+            target_field.bgcolor = ft.Colors.WHITE
+            target_field.content_padding = ft.padding.symmetric(horizontal=14, vertical=14)
+            return ft.Container(
+                content=ft.Row(
+                    controls=[
+                        ft.Icon(ft.Icons.CALENDAR_MONTH_OUTLINED, color=ft.Colors.BLUE_GREY_500, size=18),
+                        target_field,
+                        ft.IconButton(
+                            icon=ft.Icons.ARROW_DROP_DOWN_CIRCLE_OUTLINED,
+                            tooltip=f"Pick {label}",
+                            icon_color=ft.Colors.BLUE_GREY_600,
+                            on_click=lambda e: open_picker(target_field),
+                        ),
+                    ],
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    spacing=8,
+                ),
+                padding=ft.padding.symmetric(horizontal=12, vertical=4),
+                bgcolor=ft.Colors.BLUE_GREY_50,
+                border_radius=12,
+                border=ft.border.all(1, ft.Colors.BLUE_GREY_100),
+            )
+
+        def open_picker(target_field: ft.TextField):
+            def on_change(e):
+                if e.control.value:
+                    picked = e.control.value
+                    if hasattr(picked, "date"):
+                        target_field.value = picked.date().isoformat()
+                    else:
+                        target_field.value = str(picked)
+                    page.update()
+
+            picker = ft.DatePicker(on_change=on_change)
+            page.open(picker)
+
         estimated_time_field = ft.TextField(
-            label="Estimated Minutes (optional)",
-            width=190,
+            label="Estimated Minutes",
+            width=200,
+            value=(str(task.estimated_time) if is_edit and task.estimated_time else ""),
             keyboard_type=ft.KeyboardType.NUMBER,
-            hint_text="e.g., 150",
+            hint_text="e.g., 120",
             border_color=ft.Colors.GREY_400,
         )
         status_dropdown = ft.Dropdown(
             label="Status",
-            width=190,
+            width=200,
             options=[ft.dropdown.Option(stat) for stat in STATUSES],
-            value="Not Started",
+            value=task.status if is_edit else "Not Started",
             border_color=ft.Colors.GREY_400,
         )
-        completed_at_field = ft.TextField(
-            label="Completion Date (YYYY-MM-DD)",
-            width=190,
-            hint_text="e.g., 2025-12-09",
+        recurrence_dropdown = ft.Dropdown(
+            label="Repeat",
+            width=160,
+            options=[
+                ft.dropdown.Option("none", "No repeat"),
+                ft.dropdown.Option("daily", "Daily"),
+                ft.dropdown.Option("weekly", "Weekly"),
+                ft.dropdown.Option("monthly", "Monthly"),
+            ],
+            value=(task.recurrence_type if is_edit and task.is_recurring and task.recurrence_type else "none"),
             border_color=ft.Colors.GREY_400,
-            visible=False,  # Initially hidden
+        )
+        recurrence_interval_field = ft.TextField(
+            label="Every",
+            width=90,
+            value=(str(task.recurrence_interval) if is_edit and getattr(task, "recurrence_interval", None) else "1"),
+            keyboard_type=ft.KeyboardType.NUMBER,
+            hint_text="1",
+            border_color=ft.Colors.GREY_400,
+        )
+        recurrence_until_field = ft.TextField(
+            label="Repeat Until",
+            width=180,
+            value=(task.recurrence_until if is_edit and task.recurrence_until else ""),
+            hint_text="YYYY-MM-DD",
+            border_color=ft.Colors.GREY_400,
+            visible=(recurrence_dropdown.value != "none"),
         )
 
-        # Make completion date visible only when status is "Completed"
-        def on_status_change(e):
-            completed_at_field.visible = (e.control.value == "Completed")
-            if e.control.value == "Completed" and not completed_at_field.value:
-                completed_at_field.value = datetime.now().strftime("%Y-%m-%d")
-            page.update()
-        
-        status_dropdown.on_change = on_status_change
-        
+        description_field = ft.TextField(
+            label="Notes / Description",
+            multiline=True,
+            min_lines=3,
+            max_lines=5,
+            width=420,
+            value=(task.description if is_edit and task.description else ""),
+            border_color=ft.Colors.GREY_400,
+        )
+
         error_text = ft.Text("", color=ft.Colors.RED_600, size=12)
-        
-        def save_task(e):
-            # Validate required fields
+
+        def on_repeat_change(e):
+            recurrence_until_field.visible = (e.control.value != "none")
+            recurrence_interval_field.visible = (e.control.value != "none")
+            if e.control.value == "none":
+                recurrence_until_field.value = ""
+                recurrence_interval_field.value = "1"
+            page.update()
+
+        recurrence_dropdown.on_change = on_repeat_change
+        recurrence_interval_field.visible = recurrence_dropdown.value != "none"
+
+        def save_form(e):
             if not title_field.value or not title_field.value.strip():
                 error_text.value = "Task title is required"
                 page.update()
                 return
-            
             if not source_field.value or not source_field.value.strip():
                 error_text.value = "Source is required"
                 page.update()
                 return
-            
-            if not due_date_field.value or not due_date_field.value.strip():
-                error_text.value = "Due date is required"
+            if not date_given_field.value or not date_given_field.value.strip():
+                error_text.value = "Date Given is required"
                 page.update()
                 return
-            
-            # Parse estimated time
-            try:
-                est_time = int(estimated_time_field.value) if estimated_time_field.value else None
-            except:
-                est_time = None
 
-            # Parse completion date if provided
-            completed_at = completed_at_field.value if completed_at_field.value else None
-       
-            
-            # Create task
-            success, msg, task = task_manager.create_task(
-                user_id=user_id,
-                title=title_field.value,
-                source=source_field.value,
-                category=category_dropdown.value,
-                date_given=date_given_field.value,
-                date_due=due_date_field.value,
-                description=description_field.value,
-                estimated_time=est_time,
-                status=status_dropdown.value,
-                completed_at=completed_at,
-            )
-            
-            if success:
-                dialog.open = False
-                load_tasks(current_filter)
-            else:
-                error_text.value = msg
-                page.update()
-        
-        dialog = ft.AlertDialog(
-            title=ft.Text("Add New Task", weight=ft.FontWeight.W_600),
-            content=ft.Column(
-                controls=[
-                    ft.Text("* Required fields", size=12, color=ft.Colors.GREY_600),
-                    ft.Container(height=4),
-                    title_field,
-                    source_field,
-                    ft.Text(
-                        "💡 Tip: Use consistent source names",
-                        size=11,
-                        color=ft.Colors.GREY_600,
-                        italic=True,
-                    ),
-                    category_dropdown,
-                    ft.Row([date_given_field, due_date_field], spacing=10),
-                    description_field,
-                    ft.Row([estimated_time_field, status_dropdown], spacing=10),
-                    ft.Row([completed_at_field, error_text], spacing=10),
-                ],
-                width=450,
-                tight=True,
-                spacing=10,
-                scroll=ft.ScrollMode.AUTO,
-            ),
-            actions=[
-                ft.TextButton("Cancel", on_click=lambda e: setattr(dialog, 'open', False) or page.update()),
-                ft.ElevatedButton(
-                    "Save Task",
-                    bgcolor=ft.Colors.GREY_800,
-                    color=ft.Colors.WHITE,
-                    on_click=save_task,
-                ),
-            ],
-        )
-        
-        page.open(dialog)
-        page.update()
-    
-    def show_edit_dialog(task):
-        """Show dialog to edit existing task"""
-        
-        title_field = ft.TextField(label="Task Title *", width=400, value=task.title, border_color=ft.Colors.GREY_400)
-        source_field = ft.TextField(label="Source *", width=400, value=task.source, border_color=ft.Colors.GREY_400)
-        description_field = ft.TextField(
-            label="Description",
-            multiline=True,
-            min_lines=2,
-            max_lines=4,
-            width=400,
-            value=task.description or "",
-            border_color=ft.Colors.GREY_400,
-        )
-        category_dropdown = ft.Dropdown(
-            label="Category *",
-            width=400,
-            options=[ft.dropdown.Option(cat) for cat in CATEGORIES],
-            value=task.category,
-            border_color=ft.Colors.GREY_400,
-        )
-        date_given_field = ft.TextField(
-            label="Date Given *",
-            width=190,
-            value=task.date_given,
-            border_color=ft.Colors.GREY_400,
-        )
-        due_date_field = ft.TextField(
-            label="Due Date *",
-            width=190,
-            value=task.date_due,
-            border_color=ft.Colors.GREY_400,
-        )
-        estimated_time_field = ft.TextField(
-            label="Estimated Minutes",
-            width=190,
-            value=str(task.estimated_time) if task.estimated_time else "",
-            keyboard_type=ft.KeyboardType.NUMBER,
-            border_color=ft.Colors.GREY_400,
-        )
-        status_dropdown = ft.Dropdown(
-            label="Status",
-            width=190,
-            options=[ft.dropdown.Option(stat) for stat in STATUSES],
-            value=task.status,
-            border_color=ft.Colors.GREY_400,
-        )
-        completed_at_field = ft.TextField(
-            label="Completion Date (YYYY-MM-DD)",
-            width=190,
-            value=task.completed_at[:10] if task.completed_at else "",
-            border_color=ft.Colors.GREY_400,
-            visible=(task.status == "Completed")
-        )
-        
-        error_text = ft.Text("", color=ft.Colors.RED_600, size=12)
-        
-        def save_changes(e):
-            if not title_field.value or not title_field.value.strip():
-                error_text.value = "Task title is required"
-                page.update()
-                return
-            
-            # Parse times
             try:
                 est_time = int(estimated_time_field.value) if estimated_time_field.value else None
-            except:
-                est_time = None
-            
-            # Parse completion date
-            completed_at = completed_at_field.value if completed_at_field.value else None
-        
-            # Update task
-            success, msg = task_manager.update_task(
-                task.id,
-                title=title_field.value,
-                source=source_field.value,
+            except ValueError:
+                error_text.value = "Estimated minutes must be a whole number"
+                page.update()
+                return
+
+            try:
+                rec_interval = int(recurrence_interval_field.value or "1")
+            except ValueError:
+                error_text.value = "Repeat interval must be a whole number"
+                page.update()
+                return
+
+            payload = dict(
+                title=title_field.value.strip(),
+                source=source_field.value.strip(),
                 category=category_dropdown.value,
-                date_given=date_given_field.value,
-                date_due=due_date_field.value,
-                description=description_field.value,
+                date_given=date_given_field.value.strip(),
+                date_due=due_date_field.value.strip() if due_date_field.value and due_date_field.value.strip() else None,
+                description=description_field.value.strip() if description_field.value else None,
                 estimated_time=est_time,
                 status=status_dropdown.value,
-                completed_at=completed_at,
+                is_recurring=recurrence_dropdown.value != "none",
+                recurrence_type=recurrence_dropdown.value if recurrence_dropdown.value != "none" else None,
+                recurrence_interval=rec_interval,
+                recurrence_until=recurrence_until_field.value.strip() if recurrence_until_field.value and recurrence_until_field.value.strip() else None,
             )
-            
+
+            if is_edit:
+                success, msg = task_manager.update_task(task.id, **payload)
+            else:
+                success, msg, _ = task_manager.create_task(user_id=user_id, completed_at=None, **payload)
+
             if success:
                 dialog.open = False
                 load_tasks(current_filter)
+                show_action_feedback(msg or ("Task updated successfully" if is_edit else "Task created successfully"), "success")
             else:
                 error_text.value = msg
                 page.update()
-        
+
         dialog = ft.AlertDialog(
-            title=ft.Text("Edit Task", weight=ft.FontWeight.W_600),
+            title=ft.Text("Edit Task" if is_edit else "Create Task", weight=ft.FontWeight.W_600),
             content=ft.Column(
                 controls=[
+                    ft.Text("Basics", size=13, weight=ft.FontWeight.W_600, color=ft.Colors.GREY_700),
                     title_field,
                     source_field,
                     category_dropdown,
-                    ft.Row([date_given_field, due_date_field], spacing=10),
+                    ft.Container(height=8),
+                    ft.Text("Schedule", size=13, weight=ft.FontWeight.W_600, color=ft.Colors.GREY_700),
+                    build_date_input(date_given_field, "Date Given *"),
+                    build_date_input(due_date_field, "Due Date (optional)"),
+                    ft.Container(height=8),
+                    ft.Text("Time", size=13, weight=ft.FontWeight.W_600, color=ft.Colors.GREY_700),
+                    ft.Row([estimated_time_field, status_dropdown], spacing=10),
+                    ft.Row([recurrence_dropdown, recurrence_interval_field, recurrence_until_field], spacing=10),
+                    ft.Container(height=8),
+                    ft.Text("Notes", size=13, weight=ft.FontWeight.W_600, color=ft.Colors.GREY_700),
                     description_field,
-                    ft.Row([estimated_time_field], spacing=10),
-                    ft.Row([status_dropdown, completed_at_field], spacing=10),
                     error_text,
                 ],
-                width=450,
+                width=500,
                 tight=True,
-                spacing=10,
+                spacing=8,
                 scroll=ft.ScrollMode.AUTO,
             ),
             actions=[
-                ft.TextButton("Cancel", on_click=lambda e: setattr(dialog, 'open', False) or page.update()),
+                ft.TextButton("Cancel", on_click=lambda e: setattr(dialog, "open", False) or page.update()),
                 ft.ElevatedButton(
-                    "Save Changes",
+                    "Save",
                     bgcolor=ft.Colors.GREY_800,
                     color=ft.Colors.WHITE,
-                    on_click=save_changes,
+                    on_click=save_form,
                 ),
             ],
         )
-        
         page.open(dialog)
-        page.update()
-    
-    def confirm_delete(task_id):
-        """Show confirmation dialog before deleting"""
-        
-        def delete_confirmed(e):
-            success, msg = task_manager.delete_task(task_id)
-            dialog.open = False
-            load_tasks(current_filter)
-            page.update()
-        
-        dialog = ft.AlertDialog(
-            title=ft.Text("Confirm Delete", weight=ft.FontWeight.W_600),
-            content=ft.Text("Are you sure you want to delete this task?", size=14),
-            actions=[
-                ft.TextButton("Cancel", on_click=lambda e: setattr(dialog, 'open', False) or page.update()),
-                ft.ElevatedButton(
-                    "Delete",
-                    bgcolor=ft.Colors.RED_600,
-                    color=ft.Colors.WHITE,
-                    on_click=delete_confirmed,
-                ),
-            ],
-        )
-        
-        page.open(dialog)
-        page.update()
+
+    def show_add_dialog(e):
+        if session is not None:
+            session["task_details_create_mode"] = True
+            session["task_details_edit_mode"] = True
+            session["selected_task_id"] = None
+        go_to("/tasks/new")
+
+    def open_task_details(task):
+        if not task or task.id is None:
+            show_action_feedback("Task details are unavailable for this item", "warning")
+            return
+        if session is not None:
+            session["selected_task_id"] = task.id
+        go_to(f"/tasks/{task.id}")
     
     # Search field
     def on_search_change(e):
@@ -969,10 +804,10 @@ def TasksPage(page: ft.Page, session: dict = None):
         """Update filter tabs to reflect current selection"""
         filter_tabs_container.controls.clear()
         filter_tabs_container.controls.extend([
-            create_filter_tab("All", "All"),
-            create_filter_tab("Not Started", "Not Started"),
-            create_filter_tab("In Progress", "In Progress"),
-            create_filter_tab("Completed", "Completed"),
+            create_filter_tab("Today", "today"),
+            create_filter_tab("This Week", "week"),
+            create_filter_tab("Overdue", "overdue"),
+            create_filter_tab("All", "all"),
         ])
     
     # Initialize filter tabs
@@ -1059,8 +894,8 @@ def TasksPage(page: ft.Page, session: dict = None):
     )
 
     # Initial load
-    load_tasks("All")
-    
+    load_tasks("week")
+
     # Rebuild task cards for responsive layout
     def rebuild_task_cards():
         """Rebuild all task cards when window resizes"""
@@ -1085,11 +920,17 @@ def TasksPage(page: ft.Page, session: dict = None):
     
     # Handle window resize for responsive layout
     def on_window_resize(e=None):
-        filter_row_container.content = build_filter_row()
-        rebuild_task_cards()
-        update_total_time()
-        update_status_message()
-    
+        try:
+            if task_list_container.page is None:
+                page.on_resized = None
+                return
+            filter_row_container.content = build_filter_row()
+            rebuild_task_cards()
+            update_total_time()
+            update_status_message()
+        except Exception:
+            page.on_resized = None
+
     page.on_resized = on_window_resize
     
     # Build page
@@ -1119,13 +960,21 @@ def TasksPage(page: ft.Page, session: dict = None):
                         controls=[
                             status_message_text,
                             ft.Container(expand=True),  # Spacer
-                            ft.Column(
+                            ft.Row(
                                 controls=[
-                                    total_time_label,
-                                    total_time_text,
+                                    ft.Container(
+                                        content=ft.Column(
+                                            controls=[
+                                                total_time_label,
+                                                total_time_text,
+                                            ],
+                                            spacing=0,
+                                            horizontal_alignment=ft.CrossAxisAlignment.END,
+                                        ),
+                                        width=EST_COLUMN_WIDTH,
+                                    ),
                                 ],
-                                spacing=0,
-                                horizontal_alignment=ft.CrossAxisAlignment.END,
+                                spacing=6,
                             ),
                         ],
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,

@@ -68,6 +68,24 @@ def TaskDetailsPage(page: ft.Page, session: dict = None):
         except ValueError:
             return value.replace("T", " ")[:16]
 
+    def parse_timestamp(value: str | None):
+        if not value:
+            return None
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return None
+
+    def describe_session_timing(logged_at: str | None, created_at: str | None) -> str:
+        worked_dt = parse_timestamp(logged_at)
+        recorded_dt = parse_timestamp(created_at)
+        if worked_dt is None:
+            return "Session"
+        description = f"Worked {worked_dt.strftime('%b %d, %Y %I:%M %p')}"
+        if recorded_dt and abs((recorded_dt - worked_dt).total_seconds()) >= 60:
+            description += f" · Recorded {recorded_dt.strftime('%b %d, %Y %I:%M %p')}"
+        return description
+
     def info_row(label: str, value: str):
         return ft.Row(
             controls=[
@@ -156,6 +174,28 @@ def TaskDetailsPage(page: ft.Page, session: dict = None):
             return int(width)
         return default
 
+    def format_date_for_input(value: str | None) -> str:
+        raw = (value or "").strip()
+        if not raw:
+            return ""
+        try:
+            return datetime.strptime(raw[:10], "%Y-%m-%d").strftime("%m-%d-%Y")
+        except ValueError:
+            return raw
+
+    def normalize_date_input(value: str | None, label: str, required: bool = False):
+        raw = (value or "").strip()
+        if not raw:
+            if required:
+                return None, f"{label} is required"
+            return "", None
+        for fmt in ("%m-%d-%Y", "%Y-%m-%d"):
+            try:
+                return datetime.strptime(raw, fmt).strftime("%Y-%m-%d"), None
+            except ValueError:
+                continue
+        return None, f"{label} must be in MM-DD-YYYY format"
+
     def build_date_input(target_field: ft.TextField, label: str):
         target_field.label = None
         target_field.hint_text = None
@@ -167,7 +207,6 @@ def TaskDetailsPage(page: ft.Page, session: dict = None):
         return ft.Container(
             content=ft.Row(
                 controls=[
-                    ft.Icon(ft.Icons.CALENDAR_MONTH_OUTLINED, color=ft.Colors.BLUE_GREY_500, size=18),
                     target_field,
                     ft.IconButton(
                         icon=ft.Icons.ARROW_DROP_DOWN_CIRCLE_OUTLINED,
@@ -256,7 +295,7 @@ def TaskDetailsPage(page: ft.Page, session: dict = None):
         if task.recurrence_interval == 1:
             recurrence_summary = f"Every {task.recurrence_type}"
         if task.recurrence_until:
-            recurrence_summary += f" until {task.recurrence_until}"
+            recurrence_summary += f" until {format_date_for_input(task.recurrence_until)}"
 
     status_colors = {
         "Not Started": ft.Colors.GREY_700,
@@ -284,8 +323,8 @@ def TaskDetailsPage(page: ft.Page, session: dict = None):
         border_color=ft.Colors.GREY_400,
         dense=True,
     )
-    date_given_field = ft.TextField(value=task.date_given if task else datetime.now().strftime("%Y-%m-%d"), border_color=ft.Colors.GREY_400, dense=True)
-    due_date_field = ft.TextField(value=(task.date_due or "") if task else "", border_color=ft.Colors.GREY_400, dense=True, hint_text="YYYY-MM-DD")
+    date_given_field = ft.TextField(value=format_date_for_input(task.date_given if task else datetime.now().strftime("%Y-%m-%d")), border_color=ft.Colors.GREY_400, dense=True)
+    due_date_field = ft.TextField(value=format_date_for_input((task.date_due or "") if task else ""), border_color=ft.Colors.GREY_400, dense=True, hint_text="MM-DD-YYYY")
     estimated_time_field = ft.TextField(
         value=str(task.estimated_time) if task and task.estimated_time is not None else "",
         border_color=ft.Colors.GREY_400,
@@ -333,7 +372,7 @@ def TaskDetailsPage(page: ft.Page, session: dict = None):
             if e.control.value:
                 picked = e.control.value
                 if hasattr(picked, "date"):
-                    target_field.value = picked.date().isoformat()
+                    target_field.value = picked.date().strftime("%m-%d-%Y")
                 else:
                     target_field.value = str(picked)
                 page.update()
@@ -355,8 +394,10 @@ def TaskDetailsPage(page: ft.Page, session: dict = None):
     def save_inline_changes(e=None):
         title = (title_field.value or "").strip()
         source = (source_field.value or "").strip()
-        date_given = (date_given_field.value or "").strip()
-        due_date = (due_date_field.value or "").strip() or None
+        date_given_raw = (date_given_field.value or "").strip()
+        due_date_raw = (due_date_field.value or "").strip()
+        date_given, date_given_error = normalize_date_input(date_given_raw, "Date Given", required=True)
+        due_date, due_date_error = normalize_date_input(due_date_raw, "Due Date", required=False)
         description = (description_field.value or "").strip() or None
 
         if not title:
@@ -367,10 +408,15 @@ def TaskDetailsPage(page: ft.Page, session: dict = None):
             form_error_text.value = "Source is required"
             page.update()
             return
-        if not date_given:
-            form_error_text.value = "Date Given is required"
+        if date_given_error:
+            form_error_text.value = date_given_error
             page.update()
             return
+        if due_date_error:
+            form_error_text.value = due_date_error
+            page.update()
+            return
+        due_date = due_date or None
 
         try:
             estimated_time = int(estimated_time_field.value) if (estimated_time_field.value or "").strip() else None
@@ -696,7 +742,7 @@ def TaskDetailsPage(page: ft.Page, session: dict = None):
                 "when": logged_session.logged_at,
                 "title": f"Session logged · {format_minutes(logged_session.duration_minutes)}",
                 "kind": "session",
-                "subtitle": "Session",
+                "subtitle": describe_session_timing(logged_session.logged_at, logged_session.created_at),
                 "note": logged_session.notes or "No session notes.",
             }
         )
@@ -706,12 +752,13 @@ def TaskDetailsPage(page: ft.Page, session: dict = None):
         # Avoid duplicates: these are already represented by explicit creation/session entries.
         if event_type in ("TASK_CREATED", "TASK_SESSION_LOGGED"):
             continue
+        subtitle_text = "" if event_type == "TASK_SESSION_UPDATED" else event.get("event_type", "EVENT").replace("_", " ").title()
         activity_entries.append(
             {
                 "when": event.get("created_at"),
                 "title": event.get("message") or event.get("event_type", "Update").replace("_", " ").title(),
                 "kind": "event",
-                "subtitle": event.get("event_type", "EVENT").replace("_", " ").title(),
+                "subtitle": subtitle_text,
                 "note": "",
             }
         )
@@ -816,14 +863,14 @@ def TaskDetailsPage(page: ft.Page, session: dict = None):
                             content=labeled_field(
                                 "Date Given",
                                 build_date_input(date_given_field, "Date Given"),
-                            ) if edit_mode else labeled_field("Date Given", build_readonly_field(task.date_given if task else date_given_field.value)),
+                            ) if edit_mode else labeled_field("Date Given", build_readonly_field(format_date_for_input(task.date_given) if task else date_given_field.value)),
                             expand=True,
                         ),
                         ft.Container(
                             content=labeled_field(
                                 "Due Date",
                                 build_date_input(due_date_field, "Due Date"),
-                            ) if edit_mode else labeled_field("Due Date", build_readonly_field((task.date_due or "No due date") if task else "No due date")),
+                            ) if edit_mode else labeled_field("Due Date", build_readonly_field(format_date_for_input(task.date_due) if task and task.date_due else "No due date")),
                             expand=True,
                         ),
                     ],

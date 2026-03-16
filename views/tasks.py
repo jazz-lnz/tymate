@@ -40,13 +40,15 @@ def TasksPage(page: ft.Page, session: dict = None):
     # Add database lock to prevent recursive cursor usage
     db_lock = threading.Lock()
     
-    search_query = "" # for search button
+    tasks_page_state = session.get("tasks_page_state", {}) if session else {}
+
+    search_query = tasks_page_state.get("search_query", "")  # for search box
 
     # Current filter (due-date based)
-    current_filter = "week"
+    current_filter = tasks_page_state.get("current_filter", "week")
     # Current sort option
-    sort_option = "Due Soon"
-    show_completed = False
+    sort_option = tasks_page_state.get("sort_option", "Due Soon")
+    show_completed = tasks_page_state.get("show_completed", True)
     
     # Track current tasks for responsive rebuild
     current_tasks = []
@@ -57,8 +59,8 @@ def TasksPage(page: ft.Page, session: dict = None):
         if callable(route_change):
             route_change(route)
     
-    # Task list container
-    task_list_container = ft.Column(spacing=0)
+    # Task list container (independently scrollable for sticky header layout)
+    task_list_container = ft.Column(spacing=0, expand=True, scroll=ft.ScrollMode.AUTO)
     
     # Filter tabs container (will be updated dynamically)
     filter_tabs_container = ft.Row(spacing=8)
@@ -70,6 +72,16 @@ def TasksPage(page: ft.Page, session: dict = None):
     # Status message display
     status_message_text = ft.Text("", size=12, color=ft.Colors.GREY_700, weight=ft.FontWeight.W_500)
     feedback_dialog = None
+
+    def save_tasks_page_state():
+        if session is None:
+            return
+        session["tasks_page_state"] = {
+            "search_query": search_query,
+            "current_filter": current_filter,
+            "sort_option": sort_option,
+            "show_completed": show_completed,
+        }
 
     def show_action_feedback(message: str, kind: str = "info"):
         """Show transient action feedback (success/error/info)."""
@@ -169,6 +181,28 @@ def TasksPage(page: ft.Page, session: dict = None):
         except (TypeError, ValueError):
             return None
 
+    def format_date_for_input(value: str | None) -> str:
+        raw = (value or "").strip()
+        if not raw:
+            return ""
+        try:
+            return datetime.strptime(raw[:10], "%Y-%m-%d").strftime("%m-%d-%Y")
+        except (TypeError, ValueError):
+            return raw
+
+    def normalize_date_input(value: str | None, label: str, required: bool = False):
+        raw = (value or "").strip()
+        if not raw:
+            if required:
+                return None, f"{label} is required"
+            return "", None
+        for fmt in ("%m-%d-%Y", "%Y-%m-%d"):
+            try:
+                return datetime.strptime(raw, fmt).strftime("%Y-%m-%d"), None
+            except ValueError:
+                continue
+        return None, f"{label} must be in MM-DD-YYYY format"
+
     def is_in_current_due_filter(task):
         """Return True if task matches the selected due-date window."""
         due_date = parse_due_date(task)
@@ -205,7 +239,8 @@ def TasksPage(page: ft.Page, session: dict = None):
                 task_list_container.update()
 
             nonlocal current_filter, search_query
-            current_filter = filter_status or "all"
+            if filter_status is not None:
+                current_filter = filter_status
 
             # Load all tasks from your TaskManager
             tasks = task_manager.get_user_tasks(user_id, include_deleted=False)
@@ -261,6 +296,9 @@ def TasksPage(page: ft.Page, session: dict = None):
 
         # Update filter tabs to reflect current selection
         update_filter_tabs()
+
+        # Persist current list state so returning from task details restores view context.
+        save_tasks_page_state()
         
         # Update total estimated time
         update_total_time()
@@ -286,7 +324,7 @@ def TasksPage(page: ft.Page, session: dict = None):
         """Create compact task row for quick scanning. Details are in the task detail page."""
         if task.date_due:
             try:
-                due_text = datetime.strptime(task.date_due, "%Y-%m-%d").strftime("%b %d")
+                due_text = datetime.strptime(task.date_due, "%Y-%m-%d").strftime("%m-%d-%Y")
             except ValueError:
                 due_text = task.date_due
         else:
@@ -395,14 +433,14 @@ def TasksPage(page: ft.Page, session: dict = None):
         date_given_field = ft.TextField(
             label="Date Given *",
             width=300,
-            value=(task.date_given if is_edit else datetime.now().strftime("%Y-%m-%d")),
+            value=(format_date_for_input(task.date_given) if is_edit else datetime.now().strftime("%m-%d-%Y")),
             border_color=ft.Colors.GREY_400,
         )
         due_date_field = ft.TextField(
             label="Due Date (optional)",
             width=300,
-            value=(task.date_due if is_edit else ""),
-            hint_text="YYYY-MM-DD",
+            value=(format_date_for_input(task.date_due) if is_edit else ""),
+            hint_text="MM-DD-YYYY",
             border_color=ft.Colors.GREY_400,
         )
 
@@ -439,7 +477,7 @@ def TasksPage(page: ft.Page, session: dict = None):
                 if e.control.value:
                     picked = e.control.value
                     if hasattr(picked, "date"):
-                        target_field.value = picked.date().isoformat()
+                        target_field.value = picked.date().strftime("%m-%d-%Y")
                     else:
                         target_field.value = str(picked)
                     page.update()
@@ -485,8 +523,8 @@ def TasksPage(page: ft.Page, session: dict = None):
         recurrence_until_field = ft.TextField(
             label="Repeat Until",
             width=180,
-            value=(task.recurrence_until if is_edit and task.recurrence_until else ""),
-            hint_text="YYYY-MM-DD",
+            value=(format_date_for_input(task.recurrence_until) if is_edit and task.recurrence_until else ""),
+            hint_text="MM-DD-YYYY",
             border_color=ft.Colors.GREY_400,
             visible=(recurrence_dropdown.value != "none"),
         )
@@ -523,8 +561,24 @@ def TasksPage(page: ft.Page, session: dict = None):
                 error_text.value = "Source is required"
                 page.update()
                 return
-            if not date_given_field.value or not date_given_field.value.strip():
-                error_text.value = "Date Given is required"
+            date_given, date_given_error = normalize_date_input(date_given_field.value, "Date Given", required=True)
+            due_date, due_date_error = normalize_date_input(due_date_field.value, "Due Date", required=False)
+            recurrence_until, recurrence_until_error = normalize_date_input(
+                recurrence_until_field.value,
+                "Repeat Until",
+                required=False,
+            )
+
+            if date_given_error:
+                error_text.value = date_given_error
+                page.update()
+                return
+            if due_date_error:
+                error_text.value = due_date_error
+                page.update()
+                return
+            if recurrence_until_error:
+                error_text.value = recurrence_until_error
                 page.update()
                 return
 
@@ -546,15 +600,15 @@ def TasksPage(page: ft.Page, session: dict = None):
                 title=title_field.value.strip(),
                 source=source_field.value.strip(),
                 category=category_dropdown.value,
-                date_given=date_given_field.value.strip(),
-                date_due=due_date_field.value.strip() if due_date_field.value and due_date_field.value.strip() else None,
+                date_given=date_given,
+                date_due=due_date or None,
                 description=description_field.value.strip() if description_field.value else None,
                 estimated_time=est_time,
                 status=status_dropdown.value,
                 is_recurring=recurrence_dropdown.value != "none",
                 recurrence_type=recurrence_dropdown.value if recurrence_dropdown.value != "none" else None,
                 recurrence_interval=rec_interval,
-                recurrence_until=recurrence_until_field.value.strip() if recurrence_until_field.value and recurrence_until_field.value.strip() else None,
+                recurrence_until=recurrence_until or None,
             )
 
             if is_edit:
@@ -609,6 +663,7 @@ def TasksPage(page: ft.Page, session: dict = None):
         page.open(dialog)
 
     def show_add_dialog(e):
+        save_tasks_page_state()
         if session is not None:
             session["task_details_create_mode"] = True
             session["task_details_edit_mode"] = True
@@ -619,6 +674,7 @@ def TasksPage(page: ft.Page, session: dict = None):
         if not task or task.id is None:
             show_action_feedback("Task details are unavailable for this item", "warning")
             return
+        save_tasks_page_state()
         if session is not None:
             session["selected_task_id"] = task.id
         go_to(f"/tasks/{task.id}")
@@ -627,6 +683,7 @@ def TasksPage(page: ft.Page, session: dict = None):
     def on_search_change(e):
         nonlocal search_query
         search_query = e.control.value
+        save_tasks_page_state()
         load_tasks(current_filter)
 
     search_field = ft.TextField(
@@ -643,11 +700,13 @@ def TasksPage(page: ft.Page, session: dict = None):
     def on_toggle_completed(e):
         nonlocal show_completed
         show_completed = bool(e.control.value)
+        save_tasks_page_state()
         load_tasks(current_filter)
 
     def on_sort_change(e):
         nonlocal sort_option
         sort_option = e.control.value or "Due Soon"
+        save_tasks_page_state()
         load_tasks(current_filter)
 
     completed_toggle = ft.Checkbox(
@@ -805,8 +864,8 @@ def TasksPage(page: ft.Page, session: dict = None):
     # Container for filter row that can be rebuilt
     filter_row_container = ft.Container(content=build_filter_row())
 
-    # Initial load
-    load_tasks("week")
+    # Initial load (respects restored filter when returning from task details)
+    load_tasks(current_filter)
 
     # Rebuild task cards for responsive layout
     def rebuild_task_cards():
@@ -845,8 +904,7 @@ def TasksPage(page: ft.Page, session: dict = None):
 
     page.on_resized = on_window_resize
     
-    # Build page
-    return ft.Container(
+    header_section = ft.Container(
         content=ft.Column(
             controls=[
                 ft.Text("Your Tasks", size=32, weight=ft.FontWeight.W_700, color=title_color),
@@ -855,11 +913,9 @@ def TasksPage(page: ft.Page, session: dict = None):
                     bgcolor=border_color,
                     margin=ft.margin.symmetric(vertical=20),
                 ),
-                
                 # Responsive filter row
                 filter_row_container,
                 ft.Container(height=12),
-                
                 # Total estimated time section with status message
                 ft.Container(
                     content=ft.Row(
@@ -908,13 +964,26 @@ def TasksPage(page: ft.Page, session: dict = None):
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
                 ft.Container(height=10),
-                task_list_container,
+            ],
+            spacing=0,
+        ),
+        padding=ft.padding.only(left=24, right=24, top=66, bottom=0),
+    )
+
+    # Build page with sticky header and scrollable task list area.
+    return ft.Container(
+        content=ft.Column(
+            controls=[
+                header_section,
+                ft.Container(
+                    content=task_list_container,
+                    expand=True,
+                    padding=ft.padding.only(left=24, right=24, bottom=24),
+                ),
             ],
             spacing=0,
             expand=True,
-            scroll=ft.ScrollMode.AUTO,
         ),
-        padding=ft.padding.only(left=24, right=24, top=66, bottom=24),
         expand=True,
         gradient=ft.LinearGradient(
             begin=ft.alignment.top_center,

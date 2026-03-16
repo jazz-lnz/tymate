@@ -16,7 +16,14 @@ def TaskDetailsPage(page: ft.Page, session: dict = None):
             expand=True,
         )
 
-    user_id = session["user"].id
+    user_obj = session.get("user")
+    user_id = user_obj.id if hasattr(user_obj, "id") else user_obj.get("id") if isinstance(user_obj, dict) else None
+    if user_id is None:
+        return ft.Container(
+            content=ft.Text("Unable to load task details: missing user id", size=16, color=ft.Colors.RED_700),
+            alignment=ft.alignment.center,
+            expand=True,
+        )
     create_mode = bool(session.get("task_details_create_mode", False))
     task_id = session.get("selected_task_id")
     task_manager = TaskManager()
@@ -72,20 +79,23 @@ def TaskDetailsPage(page: ft.Page, session: dict = None):
         )
 
     def stat_card(label: str, value: str, accent: str, subtitle: str = ""):
+        width_now = window_width_or_default(430)
+        card_width = max(132, (width_now - 58) // 2) if width_now < 900 else None
+        number_size = 18 if width_now < 900 else 24
         return ft.Container(
             content=ft.Column(
                 controls=[
                     ft.Text(label, size=12, color=ft.Colors.GREY_600, weight=ft.FontWeight.W_600),
-                    ft.Text(value, size=24, color=ft.Colors.GREY_900, weight=ft.FontWeight.W_700),
-                    ft.Text(subtitle, size=11, color=accent, visible=bool(subtitle)),
+                    ft.Text(value, size=number_size, color=ft.Colors.GREY_900, weight=ft.FontWeight.W_700),
+                    ft.Text(subtitle, size=10, color=accent, visible=bool(subtitle), max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                 ],
-                spacing=4,
+                spacing=3,
             ),
-            bgcolor=ft.Colors.WHITE,
+            bgcolor=ft.Colors.with_opacity(0.72, ft.Colors.WHITE),
             border=ft.border.all(1, ft.Colors.GREY_300),
             border_radius=12,
-            padding=16,
-            expand=True,
+            padding=ft.padding.symmetric(horizontal=12, vertical=10),
+            width=card_width,
         )
 
     def section_card(title: str, content, expand: bool = False):
@@ -115,9 +125,23 @@ def TaskDetailsPage(page: ft.Page, session: dict = None):
             spacing=6,
         )
 
+    def metric_cell(label: str, value: str, accent: str, expand: bool = True):
+        return ft.Container(
+            content=ft.Column(
+                controls=[
+                    ft.Text(label, size=11, color=ft.Colors.GREY_600, weight=ft.FontWeight.W_600),
+                    ft.Text(value, size=16, color=accent, weight=ft.FontWeight.W_700),
+                ],
+                spacing=2,
+                horizontal_alignment=ft.CrossAxisAlignment.START,
+            ),
+            padding=ft.padding.symmetric(horizontal=10, vertical=8),
+            expand=expand,
+        )
+
     def build_readonly_field(value: str):
         return ft.TextField(
-            value=value,
+            value="" if value is None else str(value),
             read_only=True,
             dense=True,
             filled=True,
@@ -126,8 +150,15 @@ def TaskDetailsPage(page: ft.Page, session: dict = None):
             content_padding=ft.padding.symmetric(horizontal=14, vertical=14),
         )
 
+    def window_width_or_default(default: int = 430) -> int:
+        width = getattr(getattr(page, "window", None), "width", None)
+        if isinstance(width, (int, float)) and width > 0:
+            return int(width)
+        return default
+
     def build_date_input(target_field: ft.TextField, label: str):
-        target_field.label = label
+        target_field.label = None
+        target_field.hint_text = None
         target_field.expand = True
         target_field.read_only = True
         target_field.filled = True
@@ -188,9 +219,18 @@ def TaskDetailsPage(page: ft.Page, session: dict = None):
             expand=True,
         )
 
-    sessions = session_manager.get_sessions_for_task(task.id) if task and task.id else []
-    events = task_manager.get_task_events(task.id) if task and task.id else []
-    actual_minutes = task.compute_actual_minutes(sessions) if task else 0
+    try:
+        sessions = session_manager.get_sessions_for_task(task.id) if task and task.id else []
+    except Exception:
+        sessions = []
+    try:
+        events = task_manager.get_task_events(task.id) if task and task.id else []
+    except Exception:
+        events = []
+    try:
+        actual_minutes = task.compute_actual_minutes(sessions) if task else 0
+    except Exception:
+        actual_minutes = 0
     estimated_minutes = (task.estimated_time or 0) if task else 0
     variance_minutes = actual_minutes - estimated_minutes if task and task.estimated_time is not None and actual_minutes else None
     due_summary = "No due date"
@@ -452,6 +492,16 @@ def TaskDetailsPage(page: ft.Page, session: dict = None):
         page.open(dialog)
         page.update()
 
+    def go_to_time_it(e=None):
+        if create_mode or not task or task.id is None:
+            return
+        session["selected_task_id"] = task.id
+        session["time_it_draft"] = {
+            **(session.get("time_it_draft", {}) or {}),
+            "task_dropdown_value": f"{task.title} (ID: {task.id})",
+        }
+        go_to("/time_it")
+
     def mark_not_started(e=None):
         if create_mode or not task:
             return
@@ -616,36 +666,133 @@ def TaskDetailsPage(page: ft.Page, session: dict = None):
         page.open(dialog)
         page.update()
 
-    session_cards = []
-    if sessions:
-        for logged_session in reversed(sessions):
-            session_cards.append(
+    def parse_when(value: str | None):
+        if not value:
+            return datetime.min
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            try:
+                return datetime.strptime(value[:19], "%Y-%m-%d %H:%M:%S")
+            except Exception:
+                return datetime.min
+
+    activity_entries = []
+
+    if task and task.created_at:
+        activity_entries.append(
+            {
+                "when": task.created_at,
+                "title": "Task created",
+                "kind": "creation",
+                "subtitle": f"Initial status: {task.status}",
+                "note": "",
+            }
+        )
+
+    for logged_session in sessions:
+        activity_entries.append(
+            {
+                "when": logged_session.logged_at,
+                "title": f"Session logged · {format_minutes(logged_session.duration_minutes)}",
+                "kind": "session",
+                "subtitle": "Session",
+                "note": logged_session.notes or "No session notes.",
+            }
+        )
+
+    for event in events:
+        event_type = (event.get("event_type") or "").upper()
+        # Avoid duplicates: these are already represented by explicit creation/session entries.
+        if event_type in ("TASK_CREATED", "TASK_SESSION_LOGGED"):
+            continue
+        activity_entries.append(
+            {
+                "when": event.get("created_at"),
+                "title": event.get("message") or event.get("event_type", "Update").replace("_", " ").title(),
+                "kind": "event",
+                "subtitle": event.get("event_type", "EVENT").replace("_", " ").title(),
+                "note": "",
+            }
+        )
+
+    # Final guard: remove duplicate entries with identical rendered content and timestamp.
+    deduped_entries = []
+    seen_fingerprints = set()
+    for entry in activity_entries:
+        fingerprint = (
+            entry.get("kind", ""),
+            entry.get("title", ""),
+            entry.get("subtitle", ""),
+            entry.get("note", ""),
+            entry.get("when", ""),
+        )
+        if fingerprint in seen_fingerprints:
+            continue
+        seen_fingerprints.add(fingerprint)
+        deduped_entries.append(entry)
+
+    activity_entries = deduped_entries
+    activity_entries.sort(key=lambda item: parse_when(item.get("when")), reverse=True)
+
+    dot_colors = {
+        "creation": ft.Colors.BLUE_GREY_500,
+        "session": ft.Colors.BLUE_500,
+        "event": ft.Colors.ORANGE_400,
+    }
+
+    activity_items = []
+    if activity_entries:
+        for entry in activity_entries:
+            activity_items.append(
                 ft.Container(
-                    content=ft.Column(
+                    content=ft.Row(
                         controls=[
-                            ft.Row(
+                            ft.Container(
+                                width=12,
+                                height=12,
+                                border_radius=6,
+                                bgcolor=dot_colors.get(entry.get("kind"), ft.Colors.GREY_500),
+                                margin=ft.margin.only(top=5),
+                            ),
+                            ft.Column(
                                 controls=[
-                                    ft.Text(
-                                        format_minutes(logged_session.duration_minutes),
-                                        size=15,
-                                        weight=ft.FontWeight.W_700,
-                                        color=ft.Colors.GREY_900,
+                                    ft.Row(
+                                        controls=[
+                                            ft.Text(
+                                                entry.get("title", "Activity"),
+                                                size=13,
+                                                weight=ft.FontWeight.W_700,
+                                                color=ft.Colors.GREY_900,
+                                                expand=True,
+                                            ),
+                                            ft.Text(
+                                                format_timestamp(entry.get("when")),
+                                                size=11,
+                                                color=ft.Colors.GREY_600,
+                                            ),
+                                        ],
+                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                                     ),
-                                    ft.Container(expand=True),
                                     ft.Text(
-                                        format_timestamp(logged_session.logged_at),
+                                        entry.get("subtitle", ""),
                                         size=11,
-                                        color=ft.Colors.GREY_600,
+                                        color=ft.Colors.BLUE_GREY_600,
+                                        visible=bool(entry.get("subtitle")),
+                                    ),
+                                    ft.Text(
+                                        entry.get("note", ""),
+                                        size=12,
+                                        color=ft.Colors.GREY_700,
+                                        visible=bool(entry.get("note")),
                                     ),
                                 ],
-                            ),
-                            ft.Text(
-                                logged_session.notes or "No session notes.",
-                                size=12,
-                                color=ft.Colors.GREY_700,
+                                spacing=4,
+                                expand=True,
                             ),
                         ],
-                        spacing=6,
+                        spacing=12,
+                        vertical_alignment=ft.CrossAxisAlignment.START,
                     ),
                     bgcolor=ft.Colors.GREY_50,
                     border=ft.border.all(1, ft.Colors.GREY_200),
@@ -654,72 +801,34 @@ def TaskDetailsPage(page: ft.Page, session: dict = None):
                 )
             )
     else:
-        session_cards.append(ft.Text("No sessions logged yet.", size=13, color=ft.Colors.GREY_600))
-
-    timeline_items = []
-    if events:
-        for event in events:
-            timeline_items.append(
-                ft.Row(
-                    controls=[
-                        ft.Container(
-                            width=12,
-                            height=12,
-                            border_radius=6,
-                            bgcolor=ft.Colors.ORANGE_400,
-                            margin=ft.margin.only(top=5),
-                        ),
-                        ft.Column(
-                            controls=[
-                                ft.Row(
-                                    controls=[
-                                        ft.Text(
-                                            event.get("message") or event.get("event_type", "Update"),
-                                            size=13,
-                                            weight=ft.FontWeight.W_700,
-                                            color=ft.Colors.GREY_900,
-                                            expand=True,
-                                        ),
-                                        ft.Text(
-                                            format_timestamp(event.get("created_at")),
-                                            size=11,
-                                            color=ft.Colors.GREY_600,
-                                        ),
-                                    ],
-                                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                                ),
-                                ft.Text(
-                                    event.get("event_type", "EVENT").replace("_", " ").title(),
-                                    size=11,
-                                    color=ft.Colors.BLUE_GREY_600,
-                                ),
-                            ],
-                            spacing=4,
-                            expand=True,
-                        ),
-                    ],
-                    spacing=12,
-                    vertical_alignment=ft.CrossAxisAlignment.START,
-                )
-            )
-    else:
-        timeline_items.append(ft.Text("No lifecycle events yet.", size=13, color=ft.Colors.GREY_600))
+        activity_items.append(ft.Text("No activity yet.", size=13, color=ft.Colors.GREY_600))
 
     overview_card = section_card(
         "Task Overview",
         ft.Column(
             controls=[
-                labeled_field("Source", source_field) if edit_mode else labeled_field("Source", build_readonly_field(task.source if task else "-")),
-                labeled_field("Category", category_dropdown) if edit_mode else labeled_field("Category", build_readonly_field(task.category.title() if task else "-")),
+                labeled_field("Source", source_field) if edit_mode else labeled_field("Source", build_readonly_field(task.source if task and task.source else "-")),
+                labeled_field("Category", category_dropdown) if edit_mode else labeled_field("Category", build_readonly_field((task.category or "-").title() if task else "-")),
                 labeled_field("Status", status_dropdown) if edit_mode else labeled_field("Status", build_readonly_field(task.status if task else "Not Started")),
-                labeled_field(
-                    "Date Given",
-                    build_date_input(date_given_field, "Date Given"),
-                ) if edit_mode else labeled_field("Date Given", build_readonly_field(task.date_given if task else date_given_field.value)),
-                labeled_field(
-                    "Due Date",
-                    build_date_input(due_date_field, "Due Date"),
-                ) if edit_mode else labeled_field("Due Date", build_readonly_field((task.date_due or "No due date") if task else "No due date")),
+                ft.Row(
+                    controls=[
+                        ft.Container(
+                            content=labeled_field(
+                                "Date Given",
+                                build_date_input(date_given_field, "Date Given"),
+                            ) if edit_mode else labeled_field("Date Given", build_readonly_field(task.date_given if task else date_given_field.value)),
+                            expand=True,
+                        ),
+                        ft.Container(
+                            content=labeled_field(
+                                "Due Date",
+                                build_date_input(due_date_field, "Due Date"),
+                            ) if edit_mode else labeled_field("Due Date", build_readonly_field((task.date_due or "No due date") if task else "No due date")),
+                            expand=True,
+                        ),
+                    ],
+                    spacing=10,
+                ),
                 labeled_field("Completed At", build_readonly_field(format_timestamp(task.completed_at if task else None))),
             ],
             spacing=10,
@@ -763,194 +872,243 @@ def TaskDetailsPage(page: ft.Page, session: dict = None):
         ),
     )
 
-    if page.window.width < 980:
-        overview_layout = ft.Column(
-            controls=[overview_card, planning_card, notes_card],
-            spacing=16,
-        )
-    else:
-        overview_layout = ft.Column(
-            controls=[
-                ft.Row(
-                    controls=[
-                        ft.Container(content=overview_card, expand=True),
-                        ft.Container(content=planning_card, expand=True),
-                    ],
-                    spacing=16,
-                    vertical_alignment=ft.CrossAxisAlignment.START,
-                ),
-                notes_card,
-            ],
-            spacing=16,
-        )
+    window_width = window_width_or_default(430)
 
-    details_sections = [section_card("Overview", overview_layout)]
+    details_sections = [overview_card, planning_card, notes_card]
     if not create_mode:
         details_sections.append(
             section_card(
-                f"Sessions ({len(sessions)})",
-                ft.Column(controls=session_cards, spacing=10),
+                f"Activity ({len(activity_entries)})",
+                ft.Column(controls=activity_items, spacing=10),
             )
         )
-        details_sections.append(
-            section_card(
-                f"Timeline ({len(events)})",
-                ft.Column(controls=timeline_items, spacing=14),
-            )
-        )
+
+    is_mobile = window_width < 900
+    content_width = max(280, min(1040, window_width - 32))
+
+    action_controls_left = [
+        ft.IconButton(
+            icon=ft.Icons.ARROW_BACK,
+            tooltip="Back to Tasks",
+            on_click=go_back,
+            icon_color=ft.Colors.BLUE_GREY_700,
+        ),
+    ]
+
+    action_controls_right = [
+        ft.IconButton(
+            icon=ft.Icons.REPLAY,
+            tooltip="Mark Not Started",
+            on_click=mark_not_started,
+            icon_color=ft.Colors.GREY_700,
+            visible=not edit_mode and not create_mode and task is not None and task.status == "Completed",
+        ),
+        ft.TextButton(
+            "Time It",
+            icon=ft.Icons.TIMER_OUTLINED,
+            on_click=go_to_time_it,
+            visible=not edit_mode and not create_mode and task is not None and task.status != "Completed",
+            style=ft.ButtonStyle(padding=ft.padding.symmetric(horizontal=8, vertical=6), color=ft.Colors.BLUE_700),
+        ),
+        ft.OutlinedButton(
+            "Mark Started",
+            icon=ft.Icons.PLAY_ARROW,
+            on_click=mark_in_progress,
+            visible=not edit_mode and not create_mode and task is not None and task.status not in ("In Progress", "Completed"),
+            style=ft.ButtonStyle(padding=ft.padding.symmetric(horizontal=8, vertical=6)),
+        ),
+        ft.IconButton(
+            icon=ft.Icons.CHECK_CIRCLE_OUTLINE,
+            tooltip="Complete Task",
+            on_click=show_complete_dialog,
+            icon_color=ft.Colors.GREEN_700,
+            visible=not edit_mode and not create_mode and task is not None and task.status != "Completed",
+        ),
+        ft.IconButton(
+            icon=ft.Icons.EDIT_OUTLINED,
+            tooltip="Edit Task",
+            on_click=lambda e: set_edit_mode(True),
+            icon_color=ft.Colors.BLUE_GREY_700,
+            visible=not edit_mode and not create_mode,
+        ),
+        ft.IconButton(
+            icon=ft.Icons.DELETE_OUTLINE,
+            tooltip="Delete",
+            on_click=confirm_delete,
+            icon_color=ft.Colors.RED_700,
+            visible=not edit_mode and not create_mode,
+        ),
+    ]
+
+    action_row = ft.Row(
+        controls=[
+            ft.Row(controls=action_controls_left, spacing=6),
+            ft.Container(expand=True),
+            ft.Row(controls=action_controls_right, spacing=6, wrap=False),
+        ],
+        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+        spacing=8,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+    )
+
+    bottom_actions = ft.Row(
+        controls=[
+            ft.OutlinedButton(
+                "Cancel",
+                on_click=lambda e: set_edit_mode(False),
+                visible=edit_mode and not create_mode,
+            ),
+            ft.Container(expand=True),
+            ft.ElevatedButton(
+                "Save Changes",
+                icon=ft.Icons.CHECK,
+                on_click=save_inline_changes,
+                bgcolor=ft.Colors.ORANGE_400,
+                color=ft.Colors.WHITE,
+                visible=edit_mode and not create_mode,
+            ),
+            ft.ElevatedButton(
+                "Create Task",
+                icon=ft.Icons.ADD_TASK,
+                on_click=save_inline_changes,
+                bgcolor=ft.Colors.ORANGE_400,
+                color=ft.Colors.WHITE,
+                visible=create_mode,
+            ),
+            ft.OutlinedButton(
+                "Delete Task",
+                icon=ft.Icons.DELETE_OUTLINE,
+                on_click=confirm_delete,
+                style=ft.ButtonStyle(color=ft.Colors.RED_700),
+                visible=not edit_mode and not create_mode,
+            ),
+        ],
+        spacing=8,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+    )
+
+    title_panel = ft.Column(
+        controls=[
+            ft.Column(
+                controls=[
+                    title_field,
+                    form_error_text,
+                ],
+                spacing=4,
+            ) if edit_mode else ft.Text(task.title if task else "New Task", size=30 if not is_mobile else 24, weight=ft.FontWeight.W_700, color=ft.Colors.GREY_900),
+            ft.Row(
+                controls=[
+                    ft.Container(
+                        content=ft.Text((task.source if task and task.source else "Draft"), size=12, color=ft.Colors.GREY_800, weight=ft.FontWeight.W_600),
+                        bgcolor=ft.Colors.GREY_100,
+                        border_radius=999,
+                        padding=ft.padding.symmetric(horizontal=10, vertical=6),
+                        border=ft.border.all(1, ft.Colors.GREY_300),
+                        visible=not edit_mode and not create_mode,
+                    ),
+                    ft.Container(
+                        content=ft.Text((task.category if task and task.category else "others"), size=12, color=ft.Colors.GREY_800, weight=ft.FontWeight.W_600),
+                        bgcolor=ft.Colors.GREY_100,
+                        border_radius=999,
+                        padding=ft.padding.symmetric(horizontal=10, vertical=6),
+                        border=ft.border.all(1, ft.Colors.GREY_300),
+                        visible=not edit_mode and not create_mode,
+                    ),
+                    ft.Container(
+                        content=ft.Text(task.status if task else "Not Started", size=12, color=ft.Colors.WHITE, weight=ft.FontWeight.W_600),
+                        bgcolor=status_colors.get(task.status if task else "Not Started", ft.Colors.GREY_700),
+                        border_radius=999,
+                        padding=ft.padding.symmetric(horizontal=10, vertical=6),
+                        visible=not edit_mode and not create_mode,
+                    ),
+                ],
+                wrap=True,
+                spacing=8,
+            ),
+            ft.Container(
+                content=ft.Text(
+                    "Create a clear task with due date and estimate so your urgency ranking stays accurate.",
+                    size=12,
+                    color=ft.Colors.GREY_700,
+                ),
+                visible=create_mode,
+            ),
+        ],
+        spacing=10,
+    )
+
+    due_card = ft.Container(
+        content=ft.Row(
+            controls=[
+                ft.Container(
+                    content=ft.Text(f"{len(sessions)} sessions", size=11, color=ft.Colors.GREY_700, weight=ft.FontWeight.W_600),
+                    padding=ft.padding.symmetric(horizontal=10, vertical=6),
+                    border_radius=999,
+                    bgcolor=ft.Colors.GREY_100,
+                    visible=not create_mode,
+                ),
+                ft.Container(
+                    content=ft.Text(due_summary, size=12, color=ft.Colors.WHITE, weight=ft.FontWeight.W_700),
+                    padding=ft.padding.symmetric(horizontal=10, vertical=6),
+                    border_radius=999,
+                    bgcolor=due_color,
+                ),
+            ],
+            spacing=8,
+            alignment=ft.MainAxisAlignment.END,
+            wrap=True,
+        ),
+        padding=0,
+        bgcolor="transparent",
+    )
+
+    header_block = ft.Column(
+        controls=[title_panel, due_card],
+        spacing=10,
+    ) if is_mobile else ft.Row(
+        controls=[title_panel, due_card],
+        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+        vertical_alignment=ft.CrossAxisAlignment.START,
+    )
 
     return ft.Container(
         content=ft.Column(
             controls=[
-                ft.Row(
-                    controls=[
-                        ft.TextButton("Back to Tasks", icon=ft.Icons.ARROW_BACK, on_click=go_back),
-                        ft.Container(expand=True),
-                        ft.OutlinedButton(
-                            "Delete",
-                            icon=ft.Icons.DELETE_OUTLINE,
-                            on_click=confirm_delete,
-                            visible=not edit_mode and not create_mode,
-                            style=ft.ButtonStyle(color=ft.Colors.RED_700),
-                        ),
-                        ft.OutlinedButton(
-                            "Mark Not Started",
-                            on_click=mark_not_started,
-                            visible=not edit_mode and not create_mode and task is not None and task.status == "Completed",
-                        ),
-                        ft.OutlinedButton(
-                            "Start Task",
-                            icon=ft.Icons.PLAY_ARROW,
-                            on_click=mark_in_progress,
-                            visible=not edit_mode and not create_mode and task is not None and task.status not in ("In Progress", "Completed"),
-                        ),
-                        ft.ElevatedButton(
-                            "Complete Task",
-                            icon=ft.Icons.CHECK_CIRCLE_OUTLINE,
-                            on_click=show_complete_dialog,
-                            bgcolor=ft.Colors.GREEN_700,
-                            color=ft.Colors.WHITE,
-                            visible=not edit_mode and not create_mode and task is not None and task.status != "Completed",
-                        ),
-                        ft.TextButton(
-                            "Cancel Create" if create_mode else "Cancel Edit",
-                            visible=edit_mode,
-                            on_click=go_back if create_mode else (lambda e: set_edit_mode(False)),
-                        ),
-                        ft.ElevatedButton(
-                            "Apply Changes",
-                            icon=ft.Icons.CHECK,
-                            on_click=save_inline_changes,
-                            bgcolor=ft.Colors.ORANGE_400,
-                            color=ft.Colors.WHITE,
-                            visible=edit_mode and not create_mode,
-                        ),
-                        ft.ElevatedButton(
-                            "Create Task",
-                            icon=ft.Icons.ADD_TASK,
-                            on_click=save_inline_changes,
-                            bgcolor=ft.Colors.ORANGE_400,
-                            color=ft.Colors.WHITE,
-                            visible=create_mode,
-                        ),
-                        ft.OutlinedButton(
-                            "Edit Task",
-                            icon=ft.Icons.EDIT_OUTLINED,
-                            on_click=lambda e: set_edit_mode(True),
-                            visible=not edit_mode and not create_mode,
-                        ),
-                    ],
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                ),
+                action_row,
                 ft.Container(height=6),
-                ft.Row(
-                    controls=[
-                        ft.Column(
-                            controls=[
-                                ft.Column(
-                                    controls=[
-                                        title_field,
-                                        form_error_text,
-                                    ],
-                                    spacing=4,
-                                ) if edit_mode else ft.Text(task.title if task else "New Task", size=30, weight=ft.FontWeight.W_700, color=ft.Colors.GREY_900),
-                                ft.Row(
-                                    controls=[
-                                        ft.Container(
-                                            content=ft.Text(task.source if task else "Draft", size=12, color=ft.Colors.GREY_800, weight=ft.FontWeight.W_600),
-                                            bgcolor=ft.Colors.GREY_100,
-                                            border_radius=999,
-                                            padding=ft.padding.symmetric(horizontal=10, vertical=6),
-                                            border=ft.border.all(1, ft.Colors.GREY_300),
-                                            visible=not edit_mode and not create_mode,
-                                        ),
-                                        ft.Container(
-                                            content=ft.Text(task.category if task else "others", size=12, color=ft.Colors.GREY_800, weight=ft.FontWeight.W_600),
-                                            bgcolor=ft.Colors.GREY_100,
-                                            border_radius=999,
-                                            padding=ft.padding.symmetric(horizontal=10, vertical=6),
-                                            border=ft.border.all(1, ft.Colors.GREY_300),
-                                            visible=not edit_mode and not create_mode,
-                                        ),
-                                        ft.Container(
-                                            content=ft.Text(task.status if task else "Not Started", size=12, color=ft.Colors.WHITE, weight=ft.FontWeight.W_600),
-                                            bgcolor=status_colors.get(task.status if task else "Not Started", ft.Colors.GREY_700),
-                                            border_radius=999,
-                                            padding=ft.padding.symmetric(horizontal=10, vertical=6),
-                                            visible=not edit_mode and not create_mode,
-                                        ),
-                                    ],
-                                    wrap=True,
-                                    spacing=8,
-                                ),
-                            ],
-                            spacing=10,
-                            expand=True,
-                        ),
-                        ft.Container(
-                            content=ft.Column(
-                                controls=[
-                                    ft.Text("Due Status", size=10, color=ft.Colors.GREY_600, weight=ft.FontWeight.W_600),
-                                    ft.Text(due_summary, size=14, color=due_color, weight=ft.FontWeight.W_700),
-                                    ft.Text((task.date_due if task else due_date_field.value) or "", size=11, color=ft.Colors.GREY_700),
-                                ],
-                                spacing=2,
-                                horizontal_alignment=ft.CrossAxisAlignment.END,
-                            ),
-                            padding=12,
-                            border_radius=10,
-                            bgcolor=ft.Colors.WHITE,
-                            border=ft.border.all(1, ft.Colors.GREY_300),
-                        ),
-                    ],
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                    vertical_alignment=ft.CrossAxisAlignment.START,
-                ),
+                header_block,
                 ft.Container(height=8),
-                ft.Row(
-                    controls=[
-                        stat_card("Estimated", format_minutes(task.estimated_time) if task and task.estimated_time else "Not set", ft.Colors.BLUE_700),
-                        stat_card("Actual", format_minutes(actual_minutes) if actual_minutes else "No logs", ft.Colors.GREEN_700),
-                        stat_card(
-                            "Variance",
-                            format_minutes(abs(variance_minutes)) if variance_minutes is not None else "-",
-                            ft.Colors.ORANGE_700,
-                            "Over estimate" if variance_minutes is not None and variance_minutes < 0 else "Over actual" if variance_minutes is not None and variance_minutes > 0 else "",
-                        ),
-                        stat_card("Sessions", str(len(sessions)), ft.Colors.BLUE_GREY_700),
-                    ],
-                    spacing=14,
-                    wrap=page.window.width < 980,
+                ft.Container(
+                    content=ft.Row(
+                        controls=[
+                            metric_cell("Estimated", format_minutes(task.estimated_time) if task and task.estimated_time else "Not set", ft.Colors.BLUE_700),
+                            ft.VerticalDivider(width=1, thickness=1, color=ft.Colors.GREY_300),
+                            metric_cell("Actual", format_minutes(actual_minutes) if actual_minutes else "No logs", ft.Colors.GREEN_700),
+                            ft.VerticalDivider(width=1, thickness=1, color=ft.Colors.GREY_300),
+                            metric_cell("Variance", format_minutes(abs(variance_minutes)) if variance_minutes is not None else "-", ft.Colors.ORANGE_700),
+                        ],
+                        spacing=0,
+                    ),
+                    bgcolor=ft.Colors.with_opacity(0.78, ft.Colors.WHITE),
+                    border=ft.border.all(1, ft.Colors.GREY_300),
+                    border_radius=12,
                     visible=not create_mode,
                 ),
                 ft.Container(height=10),
                 ft.Column(controls=details_sections, spacing=14),
+                ft.Container(height=14),
+                bottom_actions,
+                ft.Container(height=24),
             ],
             spacing=0,
-            expand=True,
             scroll=ft.ScrollMode.AUTO,
+            expand=True,
         ),
-        padding=24,
         expand=True,
-        bgcolor=ft.Colors.GREY_50,
+        padding=ft.padding.only(left=16, right=16, top=66, bottom=20),
+        gradient=ft.LinearGradient(
+            begin=ft.alignment.top_center,
+            end=ft.alignment.bottom_center,
+            colors=["#DDE9FB", "#FFFFFF"],
+        ),
     )

@@ -42,6 +42,7 @@ class SessionManager:
         task_id: int,
         duration_minutes: int,
         notes: Optional[str] = None,
+        logged_at: Optional[str] = None,
         task: Optional[Task] = None,
     ) -> tuple[bool, str, Optional[Session]]:
         """Create a session record, update task status, and optionally append to task.sessions."""
@@ -53,6 +54,7 @@ class SessionManager:
             task_id=task_id,
             duration_minutes=duration_minutes,
             notes=notes,
+            logged_at=logged_at,
         )
 
         try:
@@ -80,6 +82,7 @@ class SessionManager:
                 metadata={
                     "duration_minutes": duration_minutes,
                     "notes": notes,
+                    "logged_at": session.logged_at,
                 },
             )
 
@@ -106,6 +109,7 @@ class SessionManager:
         task_id: int,
         duration_minutes: int,
         notes: Optional[str] = None,
+        logged_at: Optional[str] = None,
     ) -> tuple[bool, str, Optional[Session]]:
         """Backward-compatible alias for add_session."""
         return self.add_session(
@@ -113,6 +117,7 @@ class SessionManager:
             task_id=task_id,
             duration_minutes=duration_minutes,
             notes=notes,
+            logged_at=logged_at,
         )
 
     def get_sessions_for_task(self, task_id: int) -> List[Session]:
@@ -166,6 +171,69 @@ class SessionManager:
             (user_id,),
         )
         return [Session.from_dict(row) for row in rows]
+
+    def update_session(
+        self,
+        session_id: int,
+        user_id: int,
+        duration_minutes: int,
+        notes: Optional[str] = None,
+        logged_at: Optional[str] = None,
+    ) -> tuple[bool, str, Optional[Session]]:
+        """Update an existing non-deleted session record."""
+        if duration_minutes is None or duration_minutes <= 0:
+            return False, "Duration must be a positive number of minutes", None
+
+        try:
+            existing = self.db.fetch_one(
+                """
+                SELECT * FROM task_sessions
+                WHERE id = ? AND user_id = ? AND is_deleted = 0
+                """,
+                (session_id, user_id),
+            )
+            if not existing:
+                return False, "Session not found", None
+
+            update_payload = {
+                "duration_minutes": duration_minutes,
+                "notes": notes,
+                "logged_at": logged_at or existing.get("logged_at") or datetime.now().isoformat(),
+            }
+
+            self.db.update(
+                "task_sessions",
+                update_payload,
+                "id = ? AND user_id = ? AND is_deleted = 0",
+                (session_id, user_id),
+            )
+
+            self._log_task_event(
+                user_id=user_id,
+                task_id=existing["task_id"],
+                event_type="TASK_SESSION_UPDATED",
+                message="Session updated",
+                metadata={
+                    "session_id": session_id,
+                    "from": {
+                        "duration_minutes": existing.get("duration_minutes"),
+                        "notes": existing.get("notes"),
+                        "logged_at": existing.get("logged_at"),
+                    },
+                    "to": update_payload,
+                },
+            )
+
+            updated = self.db.fetch_one(
+                "SELECT * FROM task_sessions WHERE id = ?",
+                (session_id,),
+            )
+            if not updated:
+                return False, "Failed to load updated session", None
+
+            return True, "Session updated successfully", Session.from_dict(updated)
+        except Exception as exc:
+            return False, f"Failed to update session: {str(exc)}", None
 
     def delete_session(self, session_id: int) -> tuple[bool, str]:
         """Soft delete a session (mark as deleted)."""

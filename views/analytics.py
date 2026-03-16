@@ -17,6 +17,17 @@ def AnalyticsPage(page: ft.Page, session: dict = None):
         )
     
     user_id = session["user"].id
+    panel_bg = "#FFFFFF"
+    soft_panel_bg = "#EDF2FA"
+    border_color = "#B7C4D8"
+    title_color = "#23211E"
+    accent_color = "#6E7889"
+    drop_shadow = ft.BoxShadow(
+        spread_radius=0,
+        blur_radius=3,
+        color=ft.Colors.with_opacity(0.24, ft.Colors.BLACK),
+        offset=ft.Offset(0, 2),
+    )
     analytics_engine = AnalyticsEngine()
     
     # Load analytics data with detailed error handling
@@ -27,6 +38,7 @@ def AnalyticsPage(page: ft.Page, session: dict = None):
         completion = analytics["completion_metrics"]
         procrastination = analytics["procrastination"]
         trends = analytics["productivity_trends"]
+        peak_hours = analytics["peak_hours"]
         categories = analytics["category_insights"]
         tips = analytics["smart_tips"]
         chart_data = analytics["chart_data"]["daily_data"]
@@ -59,91 +71,88 @@ def AnalyticsPage(page: ft.Page, session: dict = None):
         )
     
     # Helper function
+    def window_width():
+        return page.window.width or 430
+
     def is_mobile():
-        return page.window.width < 768
+        return window_width() < 900
+
+    def content_width():
+        return min(1120, max(380, window_width() - 48))
+
+    def overview_card_width():
+        width = window_width()
+        if width < 560:
+            return max(170, width - 72)
+        if width < 900:
+            return 220
+        return 250
     
     # ==================== Overview Cards ====================
-    
+
+    def overview_metric_card(title: str, value: str, subtitle: str, value_color=title_color):
+        return ft.Container(
+            content=ft.Column(
+                controls=[
+                    ft.Text(title, size=12, color=accent_color, weight=ft.FontWeight.W_500),
+                    ft.Container(height=4),
+                    ft.Text(value, size=28, weight=ft.FontWeight.W_400, color=value_color),
+                    ft.Text(subtitle, size=11, color=accent_color),
+                ],
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                spacing=0,
+            ),
+            border=ft.border.all(1.5, border_color),
+            border_radius=12,
+            padding=16,
+            bgcolor=panel_bg,
+            shadow=drop_shadow,
+            expand=True,
+        )
+
+    avg_completion_days = completion.get("avg_completion_days")
+    avg_completion_value = f"{avg_completion_days}d" if avg_completion_days is not None else ""
+    avg_completion_subtitle = "from given to done" if avg_completion_days is not None else "no valid completion data"
+
     overview_cards = ft.Container(
-        content=ft.Row(
+        content=ft.Column(
             controls=[
-                # Tasks Completed
-                ft.Container(
-                    content=ft.Column(
-                        controls=[
-                            ft.Text("Tasks Completed", size=12, color=ft.Colors.GREY_600, weight=ft.FontWeight.W_500),
-                            ft.Container(height=4),
-                            ft.Text(str(completion["total_completed"]), size=28, weight=ft.FontWeight.W_400, color=ft.Colors.GREY_900),
-                            ft.Text("Last 30 days", size=11, color=ft.Colors.GREY_500),
-                        ],
-                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                        spacing=0,
-                    ),
-                    border=ft.border.all(1, ft.Colors.GREY_300),
-                    border_radius=8,
-                    padding=16,
-                    width=200,
-                    bgcolor=ft.Colors.WHITE,
+                ft.Row(
+                    controls=[
+                        overview_metric_card(
+                            "Tasks Completed",
+                            str(completion["total_completed"]),
+                            "Last 30 days",
+                        ),
+                        ft.Container(width=12),
+                        overview_metric_card(
+                            "Task Velocity",
+                            f"{completion['task_velocity']}",
+                            "tasks/week",
+                        ),
+                    ],
+                    spacing=0,
                 ),
-                # Task Velocity
-                ft.Container(
-                    content=ft.Column(
-                        controls=[
-                            ft.Text("Task Velocity", size=12, color=ft.Colors.GREY_600, weight=ft.FontWeight.W_500),
-                            ft.Container(height=4),
-                            ft.Text(f"{completion['task_velocity']}", size=28, weight=ft.FontWeight.W_400, color=ft.Colors.GREY_900),
-                            ft.Text("tasks/week", size=11, color=ft.Colors.GREY_500),
-                        ],
-                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                        spacing=0,
-                    ),
-                    border=ft.border.all(1, ft.Colors.GREY_300),
-                    border_radius=8,
-                    padding=16,
-                    width=200,
-                    bgcolor=ft.Colors.WHITE,
-                ),
-                # Average Completion
-                ft.Container(
-                    content=ft.Column(
-                        controls=[
-                            ft.Text("Avg Completion", size=12, color=ft.Colors.GREY_600, weight=ft.FontWeight.W_500),
-                            ft.Container(height=4),
-                            ft.Text(f"{completion['avg_completion_days']}d", size=28, weight=ft.FontWeight.W_400, color=ft.Colors.GREY_900),
-                            ft.Text("from given to done", size=11, color=ft.Colors.GREY_500),
-                        ],
-                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                        spacing=0,
-                    ),
-                    border=ft.border.all(1, ft.Colors.GREY_300),
-                    border_radius=8,
-                    padding=16,
-                    width=200,
-                    bgcolor=ft.Colors.WHITE,
-                ),
-                # On-Time Rate
-                ft.Container(
-                    content=ft.Column(
-                        controls=[
-                            ft.Text("On-Time Rate", size=12, color=ft.Colors.GREY_600, weight=ft.FontWeight.W_500),
-                            ft.Container(height=4),
-                            ft.Text(f"{completion['on_time_percentage']}%", size=28, weight=ft.FontWeight.W_400, 
-                                   color=ft.Colors.GREEN_700 if completion['on_time_percentage'] >= 80 else ft.Colors.ORANGE_700),
-                            ft.Text("before deadline", size=11, color=ft.Colors.GREY_500),
-                        ],
-                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                        spacing=0,
-                    ),
-                    border=ft.border.all(1, ft.Colors.GREY_300),
-                    border_radius=8,
-                    padding=16,
-                    width=200,
-                    bgcolor=ft.Colors.WHITE,
+                ft.Container(height=12),
+                ft.Row(
+                    controls=[
+                        overview_metric_card(
+                            "Avg Completion",
+                            avg_completion_value,
+                            avg_completion_subtitle,
+                        ),
+                        ft.Container(width=12),
+                        overview_metric_card(
+                            "On-Time Rate",
+                            f"{completion['on_time_percentage']}%",
+                            "before deadline",
+                            ft.Colors.GREEN_700 if completion['on_time_percentage'] >= 80 else ft.Colors.ORANGE_700,
+                        ),
+                    ],
+                    spacing=0,
                 ),
             ],
-            spacing=12,
-            wrap=True,
-            alignment=ft.MainAxisAlignment.START,
+            spacing=0,
         ),
     )
     
@@ -154,8 +163,8 @@ def AnalyticsPage(page: ft.Page, session: dict = None):
         trend_chart = ft.Container(
             content=ft.Column(
                 controls=[
-                    ft.Text("30-Day Activity", size=18, weight=ft.FontWeight.W_600, color=ft.Colors.GREY_900),
-                    ft.Container(height=1, bgcolor=ft.Colors.GREY_300, margin=ft.margin.only(top=8, bottom=16)),
+                    ft.Text("30-Day Activity", size=18, weight=ft.FontWeight.W_600, color=title_color),
+                    ft.Container(height=1, bgcolor=border_color, margin=ft.margin.only(top=8, bottom=16)),
                     ft.Container(
                         content=ft.Column(
                             controls=[
@@ -174,9 +183,10 @@ def AnalyticsPage(page: ft.Page, session: dict = None):
                 spacing=0,
             ),
             padding=20,
-            border=ft.border.all(2, ft.Colors.GREY_300),
-            border_radius=8,
-            bgcolor=ft.Colors.WHITE,
+            border=ft.border.all(1.5, border_color),
+            border_radius=12,
+            bgcolor=panel_bg,
+            shadow=drop_shadow,
         )
     else:
         print(f"Creating chart with {len(chart_data)} data points")
@@ -187,29 +197,44 @@ def AnalyticsPage(page: ft.Page, session: dict = None):
         max_tasks = max(max_tasks, 1)
         max_minutes = max(max_minutes, 1)
         chart_height = 200
+        chart_width = max(content_width() - 48, len(chart_data) * 52)
         
-        # Create bars
-        bar_containers = []
-        labels = []
+        # Create bars and labels in the same horizontally scrollable strip.
+        day_columns = []
         
         for day in chart_data:
             task_height = (day["tasks"] / max_tasks * chart_height) if day["tasks"] > 0 else 2
+
+            full_date = ""
+            try:
+                full_date = datetime.strptime(day.get("full_date", ""), "%Y-%m-%d").strftime("%b %d")
+            except Exception:
+                full_date = day.get("full_date", "")
             
-            bar_containers.append(
+            day_columns.append(
                 ft.Container(
-                    content=ft.Container(
-                        width=20,
-                        height=task_height,
-                        bgcolor=ft.Colors.GREY_700,
-                        border_radius=2,
+                    width=44,
+                    content=ft.Column(
+                        controls=[
+                            ft.Container(
+                                height=chart_height,
+                                alignment=ft.alignment.bottom_center,
+                                content=ft.Container(
+                                    width=20,
+                                    height=task_height,
+                                    bgcolor=accent_color,
+                                    border_radius=2,
+                                    tooltip=f"{day['tasks']} tasks, {format_minutes(day.get('minutes', 0))}",
+                                ),
+                            ),
+                            ft.Container(height=8),
+                            ft.Text(day["date"], size=10, color=ft.Colors.GREY_700, text_align=ft.TextAlign.CENTER),
+                            ft.Text(full_date, size=9, color=accent_color, text_align=ft.TextAlign.CENTER),
+                        ],
+                        spacing=0,
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                     ),
-                    tooltip=f"{day['tasks']} tasks, {format_minutes(day.get('minutes', 0))}",
-                    alignment=ft.alignment.bottom_center,
                 )
-            )
-            
-            labels.append(
-                ft.Text(day["date"], size=10, color=ft.Colors.GREY_600, text_align=ft.TextAlign.CENTER)
             )
         
         trend_chart = ft.Container(
@@ -217,40 +242,49 @@ def AnalyticsPage(page: ft.Page, session: dict = None):
                 controls=[
                     ft.Row(
                         controls=[
-                            ft.Text("30-Day Activity", size=18, weight=ft.FontWeight.W_600, color=ft.Colors.GREY_900),
+                            ft.Text("30-Day Activity", size=18, weight=ft.FontWeight.W_600, color=title_color),
                             ft.Container(expand=True),
                             ft.Row(
                                 controls=[
-                                    ft.Container(width=12, height=12, bgcolor=ft.Colors.GREY_700, border_radius=2),
-                                    ft.Text("Tasks Completed", size=11, color=ft.Colors.GREY_600),
+                                    ft.Container(width=12, height=12, bgcolor=accent_color, border_radius=2),
+                                    ft.Text("Tasks Completed", size=11, color=accent_color),
                                 ],
                                 spacing=4,
                             ),
                         ],
                     ),
-                    ft.Container(height=1, bgcolor=ft.Colors.GREY_300, margin=ft.margin.only(top=8, bottom=16)),
+                    ft.Container(height=1, bgcolor=border_color, margin=ft.margin.only(top=8, bottom=16)),
                     
-                    # Chart area
+                    # Chart area and labels share one horizontal scroller.
                     ft.Row(
-                        controls=bar_containers,
-                        alignment=ft.MainAxisAlignment.SPACE_AROUND,
-                        vertical_alignment=ft.CrossAxisAlignment.END,
-                        height=chart_height,
+                        controls=[
+                            ft.Container(
+                                width=chart_width,
+                                content=ft.Row(
+                                    controls=day_columns,
+                                    alignment=ft.MainAxisAlignment.SPACE_AROUND,
+                                    vertical_alignment=ft.CrossAxisAlignment.START,
+                                ),
+                            )
+                        ],
+                        scroll=ft.ScrollMode.AUTO,
                     ),
-                    
-                    # X-axis labels
-                    ft.Container(height=8),
-                    ft.Row(
-                        controls=labels,
-                        alignment=ft.MainAxisAlignment.SPACE_AROUND,
+                    ft.Container(height=6),
+                    ft.Text(
+                        "Swipe sideways to view all 30 days",
+                        size=10,
+                        color=accent_color,
+                        italic=True,
+                        visible=is_mobile(),
                     ),
                 ],
                 spacing=0,
             ),
             padding=20,
-            border=ft.border.all(2, ft.Colors.GREY_300),
-            border_radius=8,
-            bgcolor=ft.Colors.WHITE,
+            border=ft.border.all(1.5, border_color),
+            border_radius=12,
+            bgcolor=panel_bg,
+            shadow=drop_shadow,
         )
     
     # ==================== Procrastination Score ====================
@@ -265,8 +299,8 @@ def AnalyticsPage(page: ft.Page, session: dict = None):
     procrastination_card = ft.Container(
         content=ft.Column(
             controls=[
-                ft.Text("Procrastination Analysis", size=18, weight=ft.FontWeight.W_600, color=ft.Colors.GREY_900),
-                ft.Container(height=1, bgcolor=ft.Colors.GREY_300, margin=ft.margin.only(top=8, bottom=16)),
+                ft.Text("Procrastination Analysis", size=18, weight=ft.FontWeight.W_600, color=title_color),
+                ft.Container(height=1, bgcolor=border_color, margin=ft.margin.only(top=8, bottom=16)),
                 
                 # Score display
                 ft.Row(
@@ -274,15 +308,17 @@ def AnalyticsPage(page: ft.Page, session: dict = None):
                         ft.Container(
                             content=ft.Column(
                                 controls=[
-                                    ft.Text(str(procrastination["score"]), size=48, weight=ft.FontWeight.W_300, 
+                                    ft.Text(str(procrastination["score"]), size=48, weight=ft.FontWeight.W_300,
                                            color=proc_color_map.get(procrastination["color"], ft.Colors.GREY_700)),
                                     ft.Text("/ 100", size=16, color=ft.Colors.GREY_600),
                                 ],
                                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                                 spacing=0,
                             ),
-                            expand=1,
+                            width=130,
+                            alignment=ft.alignment.center,
                         ),
+                        ft.Container(width=18),
                         ft.Container(
                             content=ft.Column(
                                 controls=[
@@ -294,7 +330,8 @@ def AnalyticsPage(page: ft.Page, session: dict = None):
                                 ],
                                 spacing=4,
                             ),
-                            expand=2,
+                            expand=True,
+                            padding=ft.padding.only(left=4),
                         ),
                     ],
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -313,38 +350,43 @@ def AnalyticsPage(page: ft.Page, session: dict = None):
             spacing=0,
         ),
         padding=20,
-        border=ft.border.all(2, ft.Colors.GREY_300),
-        border_radius=8,
-        bgcolor=ft.Colors.WHITE,
+        border=ft.border.all(1.5, border_color),
+        border_radius=12,
+        bgcolor=panel_bg,
+        shadow=drop_shadow,
     )
     
     # ==================== Time Estimation Accuracy ====================
     
     accuracy = completion["time_estimation_accuracy"]
-    accuracy_color = ft.Colors.GREEN_700 if 90 <= accuracy <= 110 else ft.Colors.ORANGE_700 if 80 <= accuracy <= 120 else ft.Colors.RED_700
+    has_time_accuracy_data = completion.get("time_accuracy_status") != "No data"
+    accuracy_color = (
+        ft.Colors.GREEN_700
+        if 90 <= accuracy <= 110
+        else ft.Colors.ORANGE_700 if 80 <= accuracy <= 120 else ft.Colors.RED_700
+    )
     
     time_accuracy_card = ft.Container(
         content=ft.Column(
             controls=[
-                ft.Text("Time Estimation", size=18, weight=ft.FontWeight.W_600, color=ft.Colors.GREY_900),
-                ft.Container(height=1, bgcolor=ft.Colors.GREY_300, margin=ft.margin.only(top=8, bottom=16)),
+                ft.Text("Time Estimation", size=18, weight=ft.FontWeight.W_600, color=title_color),
+                ft.Container(height=1, bgcolor=border_color, margin=ft.margin.only(top=8, bottom=16)),
                 
                 ft.Column(
                     controls=[
-                        ft.Text(f"{accuracy}%", size=36, weight=ft.FontWeight.W_400, color=accuracy_color),
-                        ft.Text(completion["time_accuracy_status"], size=14, color=ft.Colors.GREY_600, weight=ft.FontWeight.W_500),
-                        ft.Container(height=8),
-                        ft.Text("Accuracy Score", size=12, color=ft.Colors.GREY_600),
-                        ft.Container(height=12),
-                        ft.ProgressBar(
-                            value=min(accuracy / 100, 1.5) / 1.5,
-                            color=accuracy_color,
-                            bgcolor=ft.Colors.GREY_300,
-                            height=8,
-                        ),
-                        ft.Container(height=8),
                         ft.Text(
-                            "Target: 90-110%" if accuracy < 90 or accuracy > 110 else "Perfect range!",
+                            f"{accuracy}%" if has_time_accuracy_data else "No data",
+                            size=36 if has_time_accuracy_data else 24,
+                            weight=ft.FontWeight.W_400,
+                            color=accuracy_color if has_time_accuracy_data else ft.Colors.GREY_600,
+                        ),
+                        ft.Text(completion["time_accuracy_status"], size=14, color=ft.Colors.GREY_600, weight=ft.FontWeight.W_500),
+                        ft.Text(
+                            (
+                                "Track sessions on estimated tasks to unlock this metric."
+                                if not has_time_accuracy_data
+                                else "100%--exact and not over- or underestimation--is the goal"
+                            ),
                             size=11,
                             color=ft.Colors.GREY_600,
                             italic=True,
@@ -355,10 +397,124 @@ def AnalyticsPage(page: ft.Page, session: dict = None):
             ],
             spacing=0,
         ),
+        padding=ft.padding.only(left=16, top=16, right=16, bottom=20),
+        border=ft.border.all(1.5, border_color),
+        border_radius=12,
+        bgcolor=panel_bg,
+        shadow=drop_shadow,
+    )
+
+    # ==================== Peak Productivity Hours ====================
+
+    peak_hours_list = peak_hours.get("peak_hours", []) if peak_hours else []
+
+    def format_peak_hour_label(value: str) -> str:
+        try:
+            hour = int(str(value).split(":")[0])
+            return datetime.strptime(f"{hour:02d}:00", "%H:%M").strftime("%I:%M %p").lstrip("0")
+        except Exception:
+            return value
+
+    if not peak_hours_list:
+        peak_content = ft.Text(
+            "Not enough session data yet to identify your strongest hours.",
+            size=12,
+            color=ft.Colors.GREY_600,
+            italic=True,
+        )
+    else:
+        peak_content = ft.Row(
+            controls=[
+                ft.Container(
+                    content=ft.Text(format_peak_hour_label(hour), size=13, weight=ft.FontWeight.W_600, color=title_color),
+                    padding=ft.padding.symmetric(horizontal=12, vertical=8),
+                    border_radius=8,
+                    bgcolor=soft_panel_bg,
+                )
+                for hour in peak_hours_list[:3]
+            ],
+            spacing=8,
+            wrap=True,
+        )
+
+    peak_productivity_card = ft.Container(
+        content=ft.Column(
+            controls=[
+                ft.Text("Peak Productivity Hours", size=18, weight=ft.FontWeight.W_600, color=title_color),
+                ft.Container(height=1, bgcolor=border_color, margin=ft.margin.only(top=8, bottom=16)),
+                peak_content,
+                ft.Container(height=10),
+                ft.Text(
+                    "Use these windows for high-focus work and tougher tasks.",
+                    size=11,
+                    color=ft.Colors.GREY_600,
+                    italic=True,
+                ),
+            ],
+            spacing=0,
+        ),
         padding=20,
-        border=ft.border.all(2, ft.Colors.GREY_300),
-        border_radius=8,
-        bgcolor=ft.Colors.WHITE,
+        border=ft.border.all(1.5, border_color),
+        border_radius=12,
+        bgcolor=panel_bg,
+        shadow=drop_shadow,
+    )
+
+    # ==================== Productivity Trends ====================
+
+    trend_label_map = {
+        "improving": "Improving",
+        "stable": "Stable",
+        "declining": "Declining",
+        "insufficient_data": "Not enough data",
+        "error": "Unavailable",
+    }
+    trend_color_map = {
+        "improving": ft.Colors.GREEN_700,
+        "stable": ft.Colors.BLUE_GREY_700,
+        "declining": ft.Colors.ORANGE_700,
+        "insufficient_data": ft.Colors.GREY_700,
+        "error": ft.Colors.RED_700,
+    }
+    trend_key = trends.get("trend", "insufficient_data")
+
+    productivity_trends_card = ft.Container(
+        content=ft.Column(
+            controls=[
+                ft.Text("Productivity Trends", size=18, weight=ft.FontWeight.W_600, color=title_color),
+                ft.Container(height=1, bgcolor=border_color, margin=ft.margin.only(top=8, bottom=16)),
+                ft.Row(
+                    controls=[
+                        ft.Text(
+                            trend_label_map.get(trend_key, "Not enough data"),
+                            size=20,
+                            weight=ft.FontWeight.W_600,
+                            color=trend_color_map.get(trend_key, ft.Colors.GREY_700),
+                        ),
+                        ft.Container(expand=True),
+                        ft.Text("12-week view", size=11, color=accent_color),
+                    ],
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                ft.Container(height=10),
+                ft.Text(
+                    f"Current weekly avg: {trends.get('current_week_average', 0)} tasks",
+                    size=12,
+                    color=ft.Colors.GREY_700,
+                ),
+                ft.Text(
+                    f"Predicted next week: {int(trends.get('predicted_next_week', 0))} tasks",
+                    size=12,
+                    color=ft.Colors.GREY_700,
+                ),
+            ],
+            spacing=0,
+        ),
+        padding=20,
+        border=ft.border.all(1.5, border_color),
+        border_radius=12,
+        bgcolor=panel_bg,
+        shadow=drop_shadow,
     )
     
     # ==================== Category Performance ====================
@@ -368,8 +524,8 @@ def AnalyticsPage(page: ft.Page, session: dict = None):
         category_card = ft.Container(
             content=ft.Column(
                 controls=[
-                    ft.Text("Category Performance", size=18, weight=ft.FontWeight.W_600, color=ft.Colors.GREY_900),
-                    ft.Container(height=1, bgcolor=ft.Colors.GREY_300, margin=ft.margin.only(top=8, bottom=16)),
+                    ft.Text("Category Performance", size=18, weight=ft.FontWeight.W_600, color=title_color),
+                    ft.Container(height=1, bgcolor=border_color, margin=ft.margin.only(top=8, bottom=16)),
                     ft.Container(
                         content=ft.Column(
                             controls=[
@@ -388,63 +544,123 @@ def AnalyticsPage(page: ft.Page, session: dict = None):
                 spacing=0,
             ),
             padding=20,
-            border=ft.border.all(2, ft.Colors.GREY_300),
-            border_radius=8,
-            bgcolor=ft.Colors.WHITE,
+            border=ft.border.all(1.5, border_color),
+            border_radius=12,
+            bgcolor=panel_bg,
+            shadow=drop_shadow,
             expand=True,
         )
     else:
-        print(f"Creating category cards for {len(categories)} categories")
-        category_rows = []
-        for cat in categories[:5]:  # Top 5 categories
-            category_rows.append(
-                ft.Column(
-                    controls=[
-                        ft.Row(
-                            controls=[
-                                ft.Text(cat["category"], size=13, color=ft.Colors.GREY_900, weight=ft.FontWeight.W_500, expand=True),
-                                ft.Text(f"{cat['completion_rate']}%", size=13, color=ft.Colors.GREY_700, weight=ft.FontWeight.W_600),
-                            ],
-                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                        ),
-                        ft.Container(height=4),
-                        ft.ProgressBar(
-                            value=cat["completion_rate"] / 100,
-                            color=ft.Colors.GREY_800,
-                            bgcolor=ft.Colors.GREY_300,
-                            height=6,
-                        ),
-                        ft.Row(
-                            controls=[
-                                ft.Text(f"{cat['total_tasks']} tasks", size=11, color=ft.Colors.GREY_600),
-                                ft.Text(f"On-time: {cat['on_time_rate']}%", size=11, color=ft.Colors.GREY_600),
-                            ],
-                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                        ),
-                        ft.Container(height=1, bgcolor=ft.Colors.GREY_200, margin=ft.margin.symmetric(vertical=8)),
-                    ],
-                    spacing=0,
+        print(f"Creating category table for {len(categories)} categories")
+
+        def _ontime_color(rate):
+            if rate >= 75:
+                return ft.Colors.GREEN_700
+            elif rate >= 50:
+                return ft.Colors.ORANGE_700
+            else:
+                return ft.Colors.RED_700
+
+        col_widths = [156, 52, 96, 84]  # category, tasks, completion, on-time
+        table_width = sum(col_widths) + 28
+
+        def table_header():
+            labels = ["Category", "Tasks", "Completion", "On-Time"]
+            cells = []
+            for i, label in enumerate(labels):
+                cells.append(
+                    ft.Container(
+                        content=ft.Text(label, size=11, weight=ft.FontWeight.W_600, color=accent_color),
+                        width=col_widths[i],
+                        alignment=ft.alignment.center_left if i == 0 else ft.alignment.center,
+                    )
+                )
+            return ft.Container(
+                content=ft.Row(controls=cells, spacing=4),
+                padding=ft.padding.only(left=8, right=8, top=6, bottom=6),
+                bgcolor=soft_panel_bg,
+                border_radius=ft.border_radius.only(top_left=6, top_right=6),
+            )
+
+        table_rows = []
+        for i, cat in enumerate(categories[:8]):
+            row_bg = panel_bg if i % 2 == 0 else soft_panel_bg
+            completion = cat["completion_rate"]
+            ontime = cat["on_time_rate"]
+            comp_color = ft.Colors.GREEN_700 if completion >= 75 else ft.Colors.ORANGE_700 if completion >= 50 else ft.Colors.RED_700
+            table_rows.append(
+                ft.Container(
+                    content=ft.Row(
+                        controls=[
+                            ft.Container(
+                                content=ft.Text(
+                                    cat["category"],
+                                    size=12,
+                                    color=title_color,
+                                    weight=ft.FontWeight.W_500,
+                                    max_lines=4,
+                                ),
+                                width=col_widths[0],
+                            ),
+                            ft.Container(
+                                content=ft.Text(str(cat["total_tasks"]), size=12, color=accent_color, text_align=ft.TextAlign.CENTER),
+                                width=col_widths[1],
+                                alignment=ft.alignment.center,
+                            ),
+                            ft.Container(
+                                content=ft.Text(f"{completion}%", size=12, weight=ft.FontWeight.W_600, color=comp_color, text_align=ft.TextAlign.CENTER),
+                                width=col_widths[2],
+                                alignment=ft.alignment.center,
+                            ),
+                            ft.Container(
+                                content=ft.Text(f"{ontime}%", size=12, weight=ft.FontWeight.W_600, color=_ontime_color(ontime), text_align=ft.TextAlign.CENTER),
+                                width=col_widths[3],
+                                alignment=ft.alignment.center,
+                            ),
+                        ],
+                        spacing=4,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                    bgcolor=row_bg,
+                    padding=ft.padding.symmetric(horizontal=8, vertical=10),
                 )
             )
-        
+
         category_card = ft.Container(
             content=ft.Column(
                 controls=[
-                    ft.Text("Category Performance", size=18, weight=ft.FontWeight.W_600, color=ft.Colors.GREY_900),
-                    ft.Container(height=1, bgcolor=ft.Colors.GREY_300, margin=ft.margin.only(top=8, bottom=16)),
-                    ft.Column(
-                        controls=category_rows,
-                        spacing=0,
+                    ft.Text("Category Performance", size=18, weight=ft.FontWeight.W_600, color=title_color),
+                    ft.Container(height=1, bgcolor=border_color, margin=ft.margin.only(top=8, bottom=16)),
+                    ft.Text(
+                        "Scroll sideways to view completion and on-time ratings.",
+                        size=10,
+                        color=accent_color,
+                        italic=True,
+                    ),
+                    ft.Container(height=8),
+                    ft.Row(
+                        controls=[
+                            ft.Container(
+                                width=table_width,
+                                content=ft.Column(
+                                    controls=[table_header()] + table_rows,
+                                    spacing=0,
+                                ),
+                                border=ft.border.all(1, border_color),
+                                border_radius=8,
+                                clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                            )
+                        ],
                         scroll=ft.ScrollMode.AUTO,
-                        height=465,
                     ),
                 ],
                 spacing=0,
             ),
             padding=20,
-            border=ft.border.all(2, ft.Colors.GREY_300),
-            border_radius=8,
-            bgcolor=ft.Colors.WHITE,
+            border=ft.border.all(1.5, border_color),
+            border_radius=12,
+            bgcolor=panel_bg,
+            shadow=drop_shadow,
             expand=True,
         )
     
@@ -459,7 +675,7 @@ def AnalyticsPage(page: ft.Page, session: dict = None):
     if not tips or len(tips) == 0:
         print("No tips generated")
         tip_content = ft.Text(
-            "Great job! No recommendations at this time. Complete more tasks to get personalized insights!", 
+            "No recommendations at this time. Complete more tasks to get personalized insights!", 
             size=13, 
             color=ft.Colors.GREY_600, 
             italic=True
@@ -487,12 +703,24 @@ def AnalyticsPage(page: ft.Page, session: dict = None):
                                             ft.Container(height=4),
                                             ft.Text(tip["message"], size=12, color=ft.Colors.GREY_700),
                                             ft.Container(height=8),
-                                            ft.Row(
+                                            ft.Column(
                                                 controls=[
-                                                    ft.Icon(ft.Icons.LIGHTBULB_OUTLINE, size=14, color=ft.Colors.GREY_600),
-                                                    ft.Text(tip["action"], size=11, color=ft.Colors.GREY_600, italic=True),
+                                                    ft.Row(
+                                                        controls=[
+                                                            ft.Icon(ft.Icons.LIGHTBULB_OUTLINE, size=14, color=ft.Colors.GREY_600),
+                                                            ft.Text("Suggested action", size=11, color=ft.Colors.GREY_600, italic=True),
+                                                        ],
+                                                        spacing=4,
+                                                    ),
+                                                    ft.Container(height=2),
+                                                    ft.Text(
+                                                        tip["action"],
+                                                        size=11,
+                                                        color=ft.Colors.GREY_700,
+                                                        max_lines=4,
+                                                    ),
                                                 ],
-                                                spacing=4,
+                                                spacing=0,
                                             ),
                                         ],
                                         spacing=0,
@@ -507,7 +735,7 @@ def AnalyticsPage(page: ft.Page, session: dict = None):
                     padding=16,
                     border=ft.border.all(1, ft.Colors.GREY_300),
                     border_radius=8,
-                    bgcolor=ft.Colors.GREY_50,
+                    bgcolor=soft_panel_bg,
                     margin=ft.margin.only(bottom=8),
                 )
             )
@@ -516,16 +744,17 @@ def AnalyticsPage(page: ft.Page, session: dict = None):
     smart_tips_section = ft.Container(
         content=ft.Column(
             controls=[
-                ft.Text("Smart Recommendations", size=18, weight=ft.FontWeight.W_600, color=ft.Colors.GREY_900),
-                ft.Container(height=1, bgcolor=ft.Colors.GREY_300, margin=ft.margin.only(top=8, bottom=16)),
+                ft.Text("Smart Recommendations", size=18, weight=ft.FontWeight.W_600, color=title_color),
+                ft.Container(height=1, bgcolor=border_color, margin=ft.margin.only(top=8, bottom=16)),
                 tip_content,
             ],
             spacing=0,
         ),
         padding=20,
-        border=ft.border.all(2, ft.Colors.GREY_300),
-        border_radius=8,
-        bgcolor=ft.Colors.WHITE,
+        border=ft.border.all(1.5, border_color),
+        border_radius=12,
+        bgcolor=panel_bg,
+        shadow=drop_shadow,
     )
     
     # ==================== Build Layout ====================
@@ -535,65 +764,62 @@ def AnalyticsPage(page: ft.Page, session: dict = None):
         if is_mobile():
             return ft.Column(
                 controls=[
-                    overview_cards,
-                    ft.Container(height=16),
+                    time_accuracy_card,
+                    ft.Container(height=10),
+                    procrastination_card,
+                    ft.Container(height=10),
+                    peak_productivity_card,
+                    ft.Container(height=10),
                     trend_chart,
                     ft.Container(height=16),
-                    procrastination_card,
-                    ft.Container(height=16),
-                    time_accuracy_card,
+                    productivity_trends_card,
                     ft.Container(height=16),
                     category_card,
+                    ft.Container(height=16),
+                    overview_cards,
                     ft.Container(height=16),
                     smart_tips_section,
                 ],
                 spacing=0,
                 scroll=ft.ScrollMode.AUTO,
+                expand=True,
             )
         else:
             return ft.Column(
                 controls=[
-                    overview_cards,
-                    ft.Container(height=16),
+                    time_accuracy_card,
+                    ft.Container(height=10),
+                    procrastination_card,
+                    ft.Container(height=10),
+                    peak_productivity_card,
+                    ft.Container(height=10),
                     trend_chart,
                     ft.Container(height=16),
-                    
-                    # Two columns
-                    ft.Row(
-                        controls=[
-                            ft.Column(
-                                controls=[
-                                    procrastination_card,
-                                    ft.Container(height=16),
-                                    time_accuracy_card,
-                                ],
-                                expand=1,
-                            ),
-                            ft.Container(width=16),
-                            category_card,
-                        ],
-                        vertical_alignment=ft.CrossAxisAlignment.START,
-                    ),
-                    
+                    productivity_trends_card,
+                    ft.Container(height=16),
+                    category_card,
+                    ft.Container(height=16),
+                    overview_cards,
                     ft.Container(height=16),
                     smart_tips_section,
                     ft.Container(height=40),  # Bottom padding
                 ],
                 spacing=0,
                 scroll=ft.ScrollMode.AUTO,
+                expand=True,
             )
     
     # Main container - PROPER FIX v2
-    analytics_container = ft.Container(
+    analytics_content = ft.Container(
         content=ft.Column(
             controls=[
                 # Header (consolidated, no expand)
                 ft.Container(
                     content=ft.Column(
                         controls=[
-                            ft.Text("Analytics & Insights", size=32, weight=ft.FontWeight.W_700, color=ft.Colors.GREY_900),
-                            ft.Text(f"Last updated: {datetime.now().strftime('%b %d, %Y')}", size=12, color=ft.Colors.GREY_600),
-                            ft.Container(height=2, bgcolor=ft.Colors.GREY_400, margin=ft.margin.symmetric(vertical=20)),
+                            ft.Text("Analytics & Insights", size=30 if is_mobile() else 32, weight=ft.FontWeight.W_700, color=title_color),
+                            ft.Text(f"Last updated: {datetime.now().strftime('%b %d, %Y')}", size=12, color=accent_color),
+                            ft.Container(height=2, bgcolor=border_color, margin=ft.margin.symmetric(vertical=20)),
                         ],
                         spacing=4,
                     ),
@@ -606,17 +832,29 @@ def AnalyticsPage(page: ft.Page, session: dict = None):
                 ),
             ],
             spacing=0,
-            expand=True,  # Column expands to fill container
+            expand=True,
         ),
-        padding=24,
-        expand=True,  # Container expands to fill page
-        bgcolor=ft.Colors.GREY_50,
+        width=content_width(),
+        padding=ft.padding.only(left=20, right=20, top=66, bottom=24),
+    )
+
+    analytics_container = ft.Container(
+        content=ft.Row(
+            controls=[analytics_content],
+            alignment=ft.MainAxisAlignment.CENTER,
+        ),
+        expand=True,
+        gradient=ft.LinearGradient(
+            begin=ft.alignment.top_center,
+            end=ft.alignment.bottom_center,
+            colors=["#DDE9FB", "#FFFFFF"],
+        ),
     )
     
     def on_window_resize(e=None):
         """Rebuild layout on window resize"""
-        # Rebuild the content inside the expanding container (2nd control, index 1)
-        analytics_container.content.controls[1].content = build_content_column()
+        analytics_content.width = content_width()
+        analytics_content.content.controls[1].content = build_content_column()
         page.update()
     
     page.on_resized = on_window_resize

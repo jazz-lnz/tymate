@@ -90,20 +90,21 @@ class AnalyticsEngine:
                     date_given = self._parse_date(task["date_given"])
                     completed_at = self._parse_date(task["completed_at"])
                     date_due = self._parse_date(task["date_due"])
-                    
-                    if not all([date_given, completed_at, date_due]):
+
+                    if not all([date_given, completed_at]):
                         continue
-                    
+
                     # Days from given to completion
-                    days_taken = (completed_at - date_given).days
+                    days_taken = (completed_at.date() - date_given.date()).days
                     if days_taken >= 0:  # Only positive values
                         completion_times.append(days_taken)
-                    
-                    # On-time vs late
-                    if completed_at.date() <= date_due.date():
-                        on_time_count += 1
-                    else:
-                        late_count += 1
+
+                    # On-time vs late requires a valid due date
+                    if date_due:
+                        if completed_at.date() <= date_due.date():
+                            on_time_count += 1
+                        else:
+                            late_count += 1
                     
                     # Category stats
                     category = task["category"] or "Uncategorized"
@@ -136,24 +137,27 @@ class AnalyticsEngine:
             
             # Calculate averages with fallbacks
             total_counted = on_time_count + late_count
-            if total_counted == 0:
-                return self._empty_metrics()
             
-            avg_completion_days = statistics.mean(completion_times) if completion_times else 0
-            median_completion_days = statistics.median(completion_times) if completion_times else 0
+            avg_completion_days = statistics.mean(completion_times) if completion_times else None
+            median_completion_days = statistics.median(completion_times) if completion_times else None
             
             # Task velocity (tasks per week)
             weeks = days / 7
             task_velocity = len(completed) / weeks if weeks > 0 else 0
             
             # Time estimation accuracy
-            avg_time_accuracy = statistics.mean(time_accuracy) if time_accuracy else 100
+            if time_accuracy:
+                avg_time_accuracy = statistics.mean(time_accuracy)
+                time_accuracy_status = self._get_accuracy_status(avg_time_accuracy)
+            else:
+                avg_time_accuracy = 0
+                time_accuracy_status = "No data"
             
             return {
-                "avg_completion_days": round(avg_completion_days, 1),
-                "median_completion_days": round(median_completion_days, 1),
-                "on_time_percentage": round((on_time_count / total_counted) * 100, 1),
-                "late_percentage": round((late_count / total_counted) * 100, 1),
+                "avg_completion_days": round(avg_completion_days, 1) if avg_completion_days is not None else None,
+                "median_completion_days": round(median_completion_days, 1) if median_completion_days is not None else None,
+                "on_time_percentage": round((on_time_count / total_counted) * 100, 1) if total_counted > 0 else 0,
+                "late_percentage": round((late_count / total_counted) * 100, 1) if total_counted > 0 else 0,
                 "task_velocity": round(task_velocity, 1),
                 "total_completed": len(completed),
                 "category_completion_rates": {
@@ -161,7 +165,7 @@ class AnalyticsEngine:
                     for cat, stats in category_stats.items()
                 },
                 "time_estimation_accuracy": round(avg_time_accuracy, 1),
-                "time_accuracy_status": self._get_accuracy_status(avg_time_accuracy),
+                "time_accuracy_status": time_accuracy_status,
             }
         
         except Exception as e:
@@ -216,9 +220,11 @@ class AnalyticsEngine:
                             continue
                         
                         days_before_due = (date_due - completed_at).days
-                        
-                        # Last minute completion (within 20% of time window or last day)
-                        if total_days > 0 and (days_before_due <= max(1, total_days * 0.2)):
+
+                        # Last minute: only meaningful for tasks with ≥3-day window.
+                        # 1- or 2-day tasks are inherently short and should never be
+                        # penalised for being completed close to the deadline.
+                        if total_days >= 3 and (days_before_due <= total_days * 0.2):
                             last_minute_completions += 1
                         
                         # Late completion
@@ -353,30 +359,44 @@ class AnalyticsEngine:
                 for week, stats in sorted(weekly_stats.items())
             ]
             
-            # Calculate trend
-            if len(weekly_data) >= 2:
-                recent_count = min(4, len(weekly_data))
-                older_count = min(4, len(weekly_data))
-                
-                recent_avg = statistics.mean([w["tasks_completed"] for w in weekly_data[-recent_count:]])
-                older_avg = statistics.mean([w["tasks_completed"] for w in weekly_data[:older_count]])
-                
-                if recent_avg > older_avg * 1.1:
+            # Calculate trend. Treat sparse or fully inactive data as insufficient
+            # to avoid misleading labels like "stable" with 0-task averages.
+            weekly_task_counts = [w["tasks_completed"] for w in weekly_data]
+            total_completed_in_window = sum(weekly_task_counts)
+
+            if len(weekly_data) < 3 or total_completed_in_window == 0:
+                trend = "insufficient_data"
+            else:
+                split = max(1, len(weekly_data) // 2)
+                older_segment = weekly_task_counts[:split]
+                recent_segment = weekly_task_counts[-split:]
+
+                older_avg = statistics.mean(older_segment)
+                recent_avg = statistics.mean(recent_segment)
+
+                if older_avg == 0 and recent_avg == 0:
+                    trend = "insufficient_data"
+                elif recent_avg > older_avg * 1.1:
                     trend = "improving"
                 elif recent_avg < older_avg * 0.9:
                     trend = "declining"
                 else:
                     trend = "stable"
-            else:
-                trend = "insufficient_data"
-            
-            # Predict next week
-            if len(weekly_data) >= 3:
-                predicted_tasks = statistics.mean([w["tasks_completed"] for w in weekly_data[-3:]])
+
+            # Predict next week from available recent weeks.
+            prediction_window = min(3, len(weekly_data))
+            if prediction_window > 0:
+                predicted_tasks = statistics.mean(weekly_task_counts[-prediction_window:])
             else:
                 predicted_tasks = 0
-            
-            current_avg = statistics.mean([w["tasks_completed"] for w in weekly_data[-4:]]) if len(weekly_data) >= 4 else 0
+
+            # Show current average based on available data instead of forcing 0
+            # when fewer than four weeks are present.
+            avg_window = min(4, len(weekly_data))
+            if avg_window > 0:
+                current_avg = statistics.mean(weekly_task_counts[-avg_window:])
+            else:
+                current_avg = 0
             
             return {
                 "weekly_data": weekly_data,
@@ -461,43 +481,46 @@ class AnalyticsEngine:
     
     def get_peak_productivity_hours(self, user_id: int) -> Dict:
         """
-        Identify when user is most productive
+        Identify when user is most productive, derived from task_sessions logged_at
+        timestamps and duration_minutes — the same data the Time It page writes.
         """
         try:
-            logs = self.db.fetch_all("""
-                SELECT 
-                    start_time,
-                    hours
-                FROM time_logs
+            sessions = self.db.fetch_all("""
+                SELECT
+                    logged_at,
+                    duration_minutes
+                FROM task_sessions
                 WHERE user_id = ?
-                AND start_time IS NOT NULL
-                AND hours > 0
+                AND logged_at IS NOT NULL
+                AND duration_minutes > 0
+                AND is_deleted = 0
             """, (user_id,))
-            
-            hour_productivity = defaultdict(lambda: {"hours": 0, "count": 0})
-            
-            for log in logs:
-                if log["start_time"]:
+
+            hour_productivity = defaultdict(lambda: {"minutes": 0, "count": 0})
+
+            for session in sessions:
+                if session["logged_at"]:
                     try:
-                        hour = int(log["start_time"].split(":")[0])
-                        if 0 <= hour <= 23:
-                            hour_productivity[hour]["hours"] += float(log["hours"])
+                        logged_dt = self._parse_date(session["logged_at"])
+                        if logged_dt:
+                            hour = logged_dt.hour
+                            hour_productivity[hour]["minutes"] += int(session["duration_minutes"])
                             hour_productivity[hour]["count"] += 1
                     except:
                         continue
-            
-            # Find peak hours
+
+            # Rank by total minutes logged per hour
             peak_hours = sorted(
-                [(h, d["hours"] / d["count"]) for h, d in hour_productivity.items() if d["count"] > 0],
+                [(h, d["minutes"]) for h, d in hour_productivity.items() if d["count"] > 0],
                 key=lambda x: x[1],
-                reverse=True
+                reverse=True,
             )[:3]
-            
+
             return {
                 "peak_hours": [f"{h:02d}:00" for h, _ in peak_hours] if peak_hours else [],
                 "productivity_by_hour": dict(hour_productivity),
             }
-        
+
         except Exception as e:
             print(f"Error in get_peak_productivity_hours: {e}")
             return {"peak_hours": [], "productivity_by_hour": {}}
@@ -517,21 +540,40 @@ class AnalyticsEngine:
             
             # Tip 1: Time estimation
             accuracy = completion_metrics["time_estimation_accuracy"]
-            if accuracy < 80:
+            time_accuracy_status = completion_metrics.get("time_accuracy_status")
+            category_time_accuracy = [
+                c["time_accuracy"]
+                for c in category_insights
+                if c.get("time_accuracy") is not None
+            ]
+            has_strong_underestimation = any(a >= 130 for a in category_time_accuracy)
+            has_strong_overestimation = any(a <= 80 for a in category_time_accuracy)
+
+            if time_accuracy_status == "No data":
+                pass
+            elif has_strong_underestimation and has_strong_overestimation:
                 tips.append({
                     "type": "time_estimation",
-                    "priority": "high",
-                    "title": "Improve Time Estimates",
-                    "message": f"Your time estimates are {accuracy:.0f}% accurate. Try adding buffer time.",
-                    "action": "Review past tasks to calibrate estimates",
+                    "priority": "medium",
+                    "title": "Your Estimates Are Inconsistent",
+                    "message": "Some tasks are overestimated while others are underestimated.",
+                    "action": "Use a short post-task review to calibrate estimates by task type.",
                 })
-            elif accuracy > 120:
+            elif accuracy < 80:
                 tips.append({
                     "type": "time_estimation",
                     "priority": "medium",
                     "title": "You're Overestimating",
-                    "message": f"You're estimating {accuracy:.0f}% of actual time needed.",
-                    "action": "Reduce time estimates by 15%",
+                    "message": f"Your estimates are about {accuracy:.0f}% of actual time needed.",
+                    "action": "Reduce planned time slightly for similar tasks.",
+                })
+            elif accuracy > 120:
+                tips.append({
+                    "type": "time_estimation",
+                    "priority": "high",
+                    "title": "You're Underestimating",
+                    "message": f"Actual time is about {accuracy:.0f}% of your estimates.",
+                    "action": "Add a realistic buffer for effort-heavy tasks.",
                 })
             
             # Tip 2: Procrastination
@@ -650,14 +692,14 @@ class AnalyticsEngine:
     def _empty_metrics(self) -> Dict:
         """Return empty metrics when no data available"""
         return {
-            "avg_completion_days": 0,
-            "median_completion_days": 0,
+            "avg_completion_days": None,
+            "median_completion_days": None,
             "on_time_percentage": 0,
             "late_percentage": 0,
             "task_velocity": 0,
             "total_completed": 0,
             "category_completion_rates": {},
-            "time_estimation_accuracy": 100,
+            "time_estimation_accuracy": 0,
             "time_accuracy_status": "No data",
         }
     

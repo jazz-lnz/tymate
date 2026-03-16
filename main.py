@@ -24,8 +24,9 @@ def main(page: ft.Page):
     page.title = "TYMATE - Time Management"
     page.theme_mode = ft.ThemeMode.LIGHT
     page.padding = 0
-    page.window.width = 1150
-    page.window.height = 950
+    page.window.width = 430
+    page.window.height = 900
+    page.window.frameless = False
     # page.window.resizable = False   # desktop app fixed size
     page.window.center()
     
@@ -111,12 +112,12 @@ def main(page: ft.Page):
         page.controls.clear()
         session["route_change"] = route_change
         
+        page.add(main_content)
+
         # Don't show navbar on login or onboarding pages
         if page.route not in ("/login", "/onboarding"):
             navbar = create_navbar(page, page.route, session, route_change)
             page.add(navbar)
-        
-        page.add(main_content)
         
         # Swap content inside main_content without removing navbar
         if page.route in ("/", "/dashboard"):

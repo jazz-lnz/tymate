@@ -2,6 +2,7 @@ import flet as ft
 from datetime import datetime, timedelta, date
 import time
 import threading
+import os
 
 from state.onboarding_manager import OnboardingManager
 from utils.time_helpers import format_minutes
@@ -22,6 +23,20 @@ def DashboardPage(page: ft.Page, session: dict = None):
     onboarding_mgr = OnboardingManager()
     
     user_id = session.get("user_id") if session else None
+
+    # Palette (matches app-wide theme)
+    page_bg = "#DDE9FB"
+    panel_bg = "#FFFFFF"
+    soft_panel_bg = "#F6F8FB"
+    border_color = "#B7C4D8"
+    drop_shadow = ft.BoxShadow(
+        spread_radius=0,
+        blur_radius=3,
+        color=ft.Colors.with_opacity(0.24, ft.Colors.BLACK),
+        offset=ft.Offset(0, 2),
+    )
+    title_color = "#23211E"
+    accent_color = "#6E7889"
 
     # Get user's budget (from DB if user_id available, else fallback)
     budget = onboarding_mgr.get_user_budget(user_id) if user_id else None
@@ -88,8 +103,21 @@ def DashboardPage(page: ft.Page, session: dict = None):
     now = datetime.now()
     
     # Create time display with real-time updates
-    time_text = ft.Text(now.strftime("%I:%M:%S %p"), size=48, weight=ft.FontWeight.W_700, color=ft.Colors.GREY_900)
-    date_text = ft.Text(now.strftime("%A, %B %d. %Y"), size=16, color=ft.Colors.GREY_600)
+    time_text = ft.Text(now.strftime("%I:%M:%S %p"), size=42, weight=ft.FontWeight.W_700, color=title_color)
+    day_span = ft.TextSpan(
+        now.strftime("%A"),
+        style=ft.TextStyle(
+            decoration=ft.TextDecoration.UNDERLINE,
+            decoration_color=accent_color,
+            color=accent_color,
+            size=14,
+        ),
+    )
+    date_span = ft.TextSpan(
+        now.strftime(", %B %d, %Y"),
+        style=ft.TextStyle(color=accent_color, size=14),
+    )
+    day_date_text = ft.Text(spans=[day_span, date_span])
     
     # Status messages
     color_map = {
@@ -100,88 +128,69 @@ def DashboardPage(page: ft.Page, session: dict = None):
         "blue": ft.Colors.BLUE_700,
     }
 
-    if user_id and remaining and "time_status" in remaining:
-        time_status_msg = remaining["time_status"]
-        time_status_color = color_map.get(remaining.get("time_status_color", "green"), ft.Colors.GREEN_700)
-    else:
+    def _build_status_msg(h_wake, h_bed):
         if hours_until_wake > 0:
-            time_status_msg = f"Day hasn't started yet. Wake in {hours_until_wake:.1f}h"
-            time_status_color = color_map["blue"]
+            return f"Your day hasn't started yet. You can sleep in for {h_wake:.1f}h..."
         elif hours_until_bedtime <= 0:
-            time_status_msg = "Past bedtime! Time to sleep."
-            time_status_color = color_map["red"]
+            return "It's your bedtime, go to sleep! ಠ_ಠ"
         elif hours_until_bedtime < 2:
-            time_status_msg = f"Only {hours_until_bedtime:.1f} hours until bedtime"
-            time_status_color = color_map["orange"]
+            return f"...only {h_bed:.1f} hours until bedtime O.O"
         elif hours_until_bedtime < 4:
-            time_status_msg = f"{hours_until_bedtime:.1f} hours remaining today"
-            time_status_color = color_map["yellow"]
+            return f"{h_bed:.1f} hours remainingggg"
         else:
-            time_status_msg = f"{hours_until_bedtime:.1f} hours remaining today"
-            time_status_color = color_map["green"]
+            return f"We still have {h_bed:.1f} hours today! Spend it well (⁠｡⁠•̀⁠ᴗ⁠-⁠)⁠✧♡"
+
+    time_status_msg = _build_status_msg(hours_until_wake, hours_until_bedtime)
     
     time_status_text = ft.Text(
         time_status_msg,
-        size=14,
-        color=time_status_color,
-        weight=ft.FontWeight.W_600,
+        size=15,
+        italic=True,
+        color=title_color,
+        weight=ft.FontWeight.W_500,
+        text_align=ft.TextAlign.CENTER,
     )
-    
+
     time_status_container = ft.Container(
         content=time_status_text,
-        padding=ft.padding.symmetric(horizontal=12, vertical=8),
-        border_radius=6,
-        bgcolor=ft.Colors.GREY_200,
+        padding=ft.padding.symmetric(horizontal=16, vertical=12),
+        border_radius=10,
+        bgcolor=panel_bg,
+        border=ft.border.all(1.5, "#1A1A1A"),
+        shadow=drop_shadow,
         alignment=ft.alignment.center,
     )
     
     # Function to update time every second
     def update_time():
         while True:
-            now = datetime.now()
-            time_text.value = now.strftime("%I:%M:%S %p")
-            date_text.value = now.strftime("%A, %B %d. %Y")
+            try:
+                now = datetime.now()
+                time_text.value = now.strftime("%I:%M:%S %p")
+                day_span.text = now.strftime("%A")
+                date_span.text = now.strftime(", %B %d, %Y")
 
-            if user_id:
-                live_remaining = onboarding_mgr.get_remaining_budget(user_id, now)
-            else:
-                live_remaining = None
+                if user_id:
+                    live_remaining = onboarding_mgr.get_remaining_budget(user_id, now)
+                else:
+                    live_remaining = None
 
-            if live_remaining and "time_status" in live_remaining:
-                time_status_text.value = live_remaining["time_status"]
-                time_status_text.color = color_map.get(live_remaining.get("time_status_color", "green"), ft.Colors.GREEN_700)
-            else:
                 wake_obj = onboarding_mgr.parse_wake_time(budget.get("wake_time", "07:00"))
                 sleep_hours = budget.get("sleep_hours", 8.0)
-                today = now.date()
-                wake_dt = datetime.combine(today, wake_obj)
-                is_before_wake = now < wake_dt
-
-                if is_before_wake:
-                    hours_until_wake = (wake_dt - now).total_seconds() / 3600
-                    time_status_text.value = f"Day hasn't started yet. Wake in {hours_until_wake:.1f}h"
-                    time_status_text.color = ft.Colors.BLUE_700
+                if live_remaining and "hours_until_bedtime" in live_remaining:
+                    live_h_bed = live_remaining["hours_until_bedtime"]
+                    live_h_wake = live_remaining.get("hours_until_wake", 0)
                 else:
-                    fallback_hours_until_bed = onboarding_mgr.get_hours_until_bedtime(now, wake_obj, sleep_hours)
-                    if fallback_hours_until_bed <= 0:
-                        time_status_text.value = "Past bedtime! Time to sleep."
-                        time_status_text.color = ft.Colors.RED_700
-                    elif fallback_hours_until_bed < 2:
-                        time_status_text.value = f"Only {fallback_hours_until_bed:.1f} hours until bedtime"
-                        time_status_text.color = ft.Colors.ORANGE_700
-                    elif fallback_hours_until_bed < 4:
-                        time_status_text.value = f"{fallback_hours_until_bed:.1f} hours remaining today"
-                        time_status_text.color = ft.Colors.AMBER_700
-                    else:
-                        time_status_text.value = f"{fallback_hours_until_bed:.1f} hours remaining today"
-                        time_status_text.color = ft.Colors.GREEN_700
+                    wake_dt = datetime.combine(now.date(), wake_obj)
+                    live_h_wake = max(0, (wake_dt - now).total_seconds() / 3600) if now < wake_dt else 0
+                    live_h_bed = onboarding_mgr.get_hours_until_bedtime(now, wake_obj, sleep_hours)
 
-            page.update()
+                time_status_text.value = _build_status_msg(live_h_wake, live_h_bed)
+
+                page.update()
+            except (AssertionError, AttributeError):
+                pass
             time.sleep(1)
-    
-    # Start time update thread
-    thread = threading.Thread(target=update_time, daemon=True)
-    thread.start()
     
     # Get upcoming tasks from database
     from state.task_manager import TaskManager
@@ -189,25 +198,91 @@ def DashboardPage(page: ft.Page, session: dict = None):
     upcoming_tasks = task_manager.get_upcoming_tasks(user_id) if user_id else []
     
     # Create time display section
-    time_section = ft.Container(
-        content=ft.Column(
-            controls=[
-                ft.Text("Current Time", size=20, color=ft.Colors.GREY_700, weight=ft.FontWeight.W_600),
-                ft.Container(height=8),
-                time_text,
-                date_text,
-                ft.Container(height=20),
-                time_status_container,
-            ],
-            spacing=0,
+    username = "there"
+    if session:
+        user_obj = session.get("user")
+        if user_obj and hasattr(user_obj, "username") and user_obj.username:
+            username = user_obj.username.split()[0]
+        elif user_obj and isinstance(user_obj, dict) and user_obj.get("username"):
+            username = user_obj["username"].split()[0]
+
+    # Prefer a static UI avatar from assets for dashboard branding.
+    ui_avatar_candidates = [
+        "ui/lowkey-hyped.png",
+        "ui/greeting_avatar.png",
+        "ui/greeting_avatar.jpg",
+        "ui/greeting_avatar.jpeg",
+        "greeting_avatar.png",
+        "avatar.png",
+    ]
+    avatar_src = next(
+        (
+            candidate
+            for candidate in ui_avatar_candidates
+            if os.path.exists(os.path.join("assets", candidate))
         ),
-        padding=20,
+        None,
     )
-    
-    # Helper function to check if mobile
-    def is_mobile():
-        return page.window.width < 768
-    
+
+    # Fallback to user profile photo if no dedicated UI asset exists yet.
+    if not avatar_src and session:
+        user_obj = session.get("user")
+        if user_obj and hasattr(user_obj, "profile_photo") and user_obj.profile_photo:
+            avatar_src = user_obj.profile_photo
+        elif user_obj and isinstance(user_obj, dict):
+            avatar_src = user_obj.get("profile_photo") or user_obj.get("profile_image") or user_obj.get("avatar_path")
+
+    avatar_fallback = ft.Container(
+        bgcolor="#E4EAF4",
+        width=92,
+        height=92,
+        border_radius=46,
+        alignment=ft.alignment.center,
+        content=ft.Icon(ft.Icons.PERSON, color="#7E8DA5", size=40),
+    )
+
+    avatar_content = avatar_fallback
+    if avatar_src:
+        avatar_content = ft.Container(
+            width=92,
+            height=92,
+            border_radius=46,
+            clip_behavior=ft.ClipBehavior.HARD_EDGE,
+            content=ft.Image(src=avatar_src, width=92, height=92, fit=ft.ImageFit.COVER),
+        )
+
+    time_section = ft.Container(
+        content=ft.Stack(
+            controls=[
+                ft.Container(
+                    width=92,
+                    height=92,
+                    right=8,
+                    top=6,
+                    border_radius=46,
+                    bgcolor="transparent",
+                    shadow=drop_shadow,
+                    content=avatar_content,
+                ),
+                ft.Column(
+                    controls=[
+                        ft.Text(f"Hey, {username}! It's:", size=20, color=title_color, weight=ft.FontWeight.W_600),
+                        time_text,
+                        ft.Container(content=day_date_text, margin=ft.margin.only(top=-4)),
+                        ft.Container(height=12),
+                        time_status_container,
+                    ],
+                    spacing=0,
+                ),
+            ],
+        ),
+        padding=ft.padding.only(left=24, right=24, top=66, bottom=16),
+    )
+
+    # Start time update thread
+    thread = threading.Thread(target=update_time, daemon=True)
+    thread.start()
+
     # Calculate today's schedule data
     schedule_manager = ScheduleManager()
     today = datetime.now().date()
@@ -223,175 +298,138 @@ def DashboardPage(page: ft.Page, session: dict = None):
     minutes_surplus = free_minutes_today - total_needed_minutes
     if minutes_surplus >= 0:
         if minutes_surplus > 240:
-            budget_verdict = "✓ You have room to do stuff."
+            budget_verdict = "✓ You have room."
+            verdict_color = "#2E7D32"
         else:
-            budget_verdict = "✓ Time is tight, but things are doable."
+            budget_verdict = "✓ Tight, but doable."
+            verdict_color = "#E65100"
     else:
         budget_verdict = f"⚠ You're short by {format_minutes(abs(minutes_surplus))}. Something has to move."
+        verdict_color = "#C62828"
+
+    def go_to_task_details(task_id):
+        if not task_id:
+            return
+        if session is not None:
+            session["selected_task_id"] = task_id
+            session["task_details_create_mode"] = False
+            session["task_details_edit_mode"] = False
+        page.route = f"/tasks/{task_id}"
+        route_change = session.get("route_change") if session else None
+        if callable(route_change):
+            route_change(page.route)
+        else:
+            page.update()
     
-    # Create task items - custom inline display
+    # Create task items - compact single-row display
     task_items = []
     for task in upcoming_tasks:
-        # date_due is stored as string (YYYY-MM-DD), convert for display
+        # Compute relative due label
         if task.date_due:
             try:
-                due_date = datetime.strptime(task.date_due, "%Y-%m-%d")
-                due_str = due_date.strftime("%b %d, %Y")
+                due_date_obj = datetime.strptime(task.date_due, "%Y-%m-%d").date()
+                delta_days = (due_date_obj - datetime.now().date()).days
+                if delta_days < 0:
+                    due_label = "overdue"
+                elif delta_days == 0:
+                    due_label = "today"
+                elif delta_days == 1:
+                    due_label = "tmrw"
+                elif delta_days <= 7:
+                    due_label = f"{delta_days}d"
+                else:
+                    due_label = due_date_obj.strftime("%b %d")
             except:
-                due_str = task.date_due
+                due_label = task.date_due
         else:
-            due_str = "No due date"
-        
+            due_label = "no due"
+
         est_time_str = format_minutes(task.estimated_time) if task.estimated_time else "—"
-            
+
         task_items.append(
             ft.Container(
-                content=ft.Column(
+                content=ft.Row(
                     controls=[
-                        ft.Row(
-                            controls=[
-                                ft.Text(
-                                    task.title,
-                                    size=14,
-                                    weight=ft.FontWeight.W_500,
-                                    color=ft.Colors.GREY_900,
-                                    expand=True,
-                                ),
-                                ft.Text(
-                                    est_time_str,
-                                    size=12,
-                                    color=ft.Colors.GREY_600,
-                                ),
-                            ],
-                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ft.Text(
+                            task.title,
+                            size=13,
+                            weight=ft.FontWeight.W_500,
+                            color=title_color,
+                            expand=True,
+                            max_lines=1,
+                            overflow=ft.TextOverflow.ELLIPSIS,
                         ),
-                        ft.Text(f"Due: {due_str}", size=12, color=ft.Colors.GREY_600),
+                        ft.Text(
+                            est_time_str,
+                            size=12,
+                            color=accent_color,
+                            weight=ft.FontWeight.W_500,
+                        ),
+                        ft.Container(width=8),
+                        ft.Text(
+                            due_label,
+                            size=11,
+                            color="#A43228" if due_label == "overdue" else accent_color,
+                            weight=ft.FontWeight.W_500,
+                        ),
                     ],
-                    spacing=2,
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    spacing=4,
                 ),
-                width=600,
-                padding=12,
-                border_radius=6,
-                bgcolor=ft.Colors.WHITE,
-                border=ft.border.all(1, ft.Colors.GREY_300),
-                margin=ft.margin.only(bottom=8),
+                padding=ft.padding.symmetric(horizontal=14, vertical=8),
+                border_radius=8,
+                bgcolor="#FFFFFF",
+                border=ft.border.all(1, "#8D9BB0"),
+                margin=ft.margin.only(bottom=5),
+                ink=True,
+                on_click=lambda e, task_id=task.id: go_to_task_details(task_id),
             )
         )
 
     upcoming_tasks_section = ft.Container(
         content=ft.Column(
             controls=[
-                ft.Text("Upcoming Tasks", size=18, weight=ft.FontWeight.W_600, color=ft.Colors.GREY_900),
-                ft.Container(
-                    height=2,
-                    bgcolor=ft.Colors.GREY_400,
-                    margin=ft.margin.only(top=12, bottom=16),
-                ),
+                ft.Text("Coming Up", size=16, weight=ft.FontWeight.W_700, color=title_color),
+                ft.Divider(height=1, thickness=1, color=border_color),
+                ft.Container(height=8),
                 ft.Column(
-                    controls=task_items,
+                    controls=task_items if task_items else [
+                        ft.Text("No upcoming tasks.", size=13, color=accent_color)
+                    ],
                     scroll=ft.ScrollMode.AUTO,
-                    height=280,
+                    height=220,
                     spacing=0,
                 ),
             ],
             spacing=0,
         ),
-        padding=20,
-        border=ft.border.all(2, ft.Colors.GREY_300),
-        border_radius=8,
-        bgcolor=ft.Colors.WHITE,
-        expand=True,
+        padding=ft.padding.symmetric(horizontal=24, vertical=16),
+        border_radius=12,
+        bgcolor=panel_bg,
+        shadow=drop_shadow,
+        margin=ft.margin.symmetric(horizontal=24),
     )
-    
-    # Get real analytics data for chart
-    from services.analytics_engine import AnalyticsEngine
-    analytics_engine = AnalyticsEngine()
-    chart_data = analytics_engine.get_dashboard_chart_data(user_id, days=7)["daily_data"] if user_id else []
-    
-    # Create bar chart with real data
-    days = []
-    bars = []
-    max_value = max([d["tasks"] for d in chart_data]) if chart_data else 1
-    
-    for day_data in chart_data:
-        days.append(day_data["date"])
-        height = (day_data["tasks"] / max_value * 120) if max_value > 0 else 0
-        bars.append(
-            ft.Container(
-                width=50,
-                height=max(height, 2),
-                bgcolor=ft.Colors.GREY_600,
-                border_radius=2,
-                tooltip=f"{day_data['tasks']} tasks, {format_minutes(day_data.get('minutes', 0))}",
-            )
-        )
     
     # Handle navigation to analytics page
     def go_to_analytics(e):
         page.route = "/analytics"
         page.update()
-    
-    analytics_preview = ft.Container(
-        content=ft.Column(
-            controls=[
-                ft.Row(
-                    controls=[
-                        ft.Text("Overview of the Past Week", size=18, weight=ft.FontWeight.W_600, color=ft.Colors.GREY_900),
-                        ft.IconButton(
-                            icon=ft.Icons.OPEN_IN_FULL_OUTLINED,
-                            icon_size=20,
-                            icon_color=ft.Colors.GREY_700,
-                            tooltip="View full analytics",
-                            on_click=go_to_analytics,
-                        ),
-                    ],
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                ),
-                ft.Container(
-                    height=2,
-                    bgcolor=ft.Colors.GREY_400,
-                    margin=ft.margin.only(top=12, bottom=16),
-                ),
-                ft.Container(
-                    content=ft.Row(
-                        controls=bars if bars else [ft.Text("Complete tasks to see analytics", size=12, color=ft.Colors.GREY_600)],
-                        alignment=ft.MainAxisAlignment.SPACE_AROUND,
-                        vertical_alignment=ft.CrossAxisAlignment.END,
-                    ),
-                    height=280,
-                    padding=10,
-                ),
-                ft.Row(
-                    controls=[ft.Text(day, size=11, color=ft.Colors.GREY_600) for day in days] if days else [],
-                    alignment=ft.MainAxisAlignment.SPACE_AROUND,
-                ),
-            ],
-            spacing=0,
-        ),
-        padding=20,
-        border=ft.border.all(2, ft.Colors.GREY_300),
-        border_radius=8,
-        bgcolor=ft.Colors.WHITE,
-    )
-    
+
     time_budget_section = ft.Container(
         content=ft.Column(
             controls=[
-                ft.Text("Today's Budget", size=18, weight=ft.FontWeight.W_600, color=ft.Colors.GREY_900),
-                ft.Container(
-                    height=2,
-                    bgcolor=ft.Colors.GREY_400,
-                    margin=ft.margin.only(top=12, bottom=16),
-                ),
+                ft.Text("Today's Budget", size=16, weight=ft.FontWeight.W_700, color=title_color),
+                ft.Divider(height=1, thickness=1, color=border_color),
+                ft.Container(height=6),
                 ft.Row(
                     controls=[
-                        ft.Text("Free Time (after classes)", size=12, color=ft.Colors.GREY_700, weight=ft.FontWeight.W_500),
+                        ft.Text("Free time (after classes)", size=12, color=accent_color),
                         ft.Text(
                             format_minutes(free_minutes_today),
                             size=12,
                             weight=ft.FontWeight.W_600,
-                            color=ft.Colors.GREY_900,
+                            color=title_color,
                         ),
                     ],
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
@@ -399,188 +437,92 @@ def DashboardPage(page: ft.Page, session: dict = None):
                 ft.Container(height=4),
                 ft.Row(
                     controls=[
-                        ft.Text("Tasks Due in 2 Days", size=12, color=ft.Colors.GREY_700, weight=ft.FontWeight.W_500),
+                        ft.Text("Tasks due in 2 days", size=12, color=accent_color),
                         ft.Text(
                             format_minutes(total_needed_minutes),
                             size=12,
                             weight=ft.FontWeight.W_600,
-                            color=ft.Colors.GREY_900,
+                            color=title_color,
                         ),
                     ],
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 ),
-                ft.Container(height=8),
+                ft.Container(height=4),
                 ft.Text(
                     budget_verdict,
-                    size=13,
+                    size=12,
                     weight=ft.FontWeight.W_600,
-                    color=ft.Colors.GREEN_700 if minutes_surplus >= 0 else ft.Colors.RED_700,
+                    color=verdict_color,
                 ),
             ],
             horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
             spacing=0,
         ),
-        padding=20,
-        border=ft.border.all(2, ft.Colors.GREY_300),
-        border_radius=8,
-        bgcolor=ft.Colors.WHITE,
-        expand=True,
+        padding=ft.padding.symmetric(horizontal=24, vertical=20),
+        border_radius=12,
+        bgcolor=panel_bg,
+        shadow=drop_shadow,
+        margin=ft.margin.symmetric(horizontal=24),
     )
-    
-    # Summary Cards - Get real data from database
+
+    # Today's stats (compact)
     total_tasks_count = len(upcoming_tasks)
     completed_today_count = task_manager.get_tasks_completed_today(user_id) if user_id else 0
-    hours_this_week = onboarding_mgr.get_time_spent_this_week(user_id) if user_id else 0.0
-    completion_rate = task_manager.get_completion_rate(user_id) if user_id else 0.0
-    
-    summary_cards = ft.Row(
-        controls=[
-            ft.Container(
-                content=ft.Column(
-                    controls=[
-                        ft.Text("Total Tasks", size=13, color=ft.Colors.GREY_700, weight=ft.FontWeight.W_600),
-                        ft.Container(height=6),
-                        ft.Text(str(total_tasks_count), size=32, weight=ft.FontWeight.W_400, color=ft.Colors.GREY_900),
-                    ],
-                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                    spacing=0,
-                ),
-                border=ft.border.all(2, ft.Colors.GREY_300),
-                border_radius=8,
-                padding=16,
-                width=200,
-                alignment=ft.alignment.center,
-                bgcolor=ft.Colors.GREY_100,
-            ),
-            ft.Container(
-                content=ft.Column(
-                    controls=[
-                        ft.Text("Completed Today", size=13, color=ft.Colors.GREY_700, weight=ft.FontWeight.W_600),
-                        ft.Container(height=6),
-                        ft.Text(str(completed_today_count), size=32, weight=ft.FontWeight.W_400, color=ft.Colors.GREY_900),
-                    ],
-                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                    spacing=0,
-                ),
-                border=ft.border.all(2, ft.Colors.GREY_300),
-                border_radius=8,
-                padding=16,
-                width=200,
-                alignment=ft.alignment.center,
-                bgcolor=ft.Colors.GREY_100,
-            ),
-            ft.Container(
-                content=ft.Column(
-                    controls=[
-                        ft.Text("Hours This Week", size=13, color=ft.Colors.GREY_700, weight=ft.FontWeight.W_600),
-                        ft.Container(height=6),
-                        ft.Text(f"{hours_this_week:.1f}", size=32, weight=ft.FontWeight.W_400, color=ft.Colors.GREY_900),
-                    ],
-                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                    spacing=0,
-                ),
-                border=ft.border.all(2, ft.Colors.GREY_300),
-                border_radius=8,
-                padding=16,
-                width=200,
-                alignment=ft.alignment.center,
-                bgcolor=ft.Colors.GREY_100,
-            ),
-            ft.Container(
-                content=ft.Column(
-                    controls=[
-                        ft.Text("Completion Rate", size=13, color=ft.Colors.GREY_700, weight=ft.FontWeight.W_600),
-                        ft.Container(height=6),
-                        ft.Text(f"{completion_rate:.0f}%", size=32, weight=ft.FontWeight.W_400, color=ft.Colors.GREY_900),
-                    ],
-                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                    spacing=0,
-                ),
-                border=ft.border.all(2, ft.Colors.GREY_300),
-                border_radius=8,
-                padding=16,
-                width=200,
-                alignment=ft.alignment.center,
-                bgcolor=ft.Colors.GREY_100,
-            ),
-        ],
-        spacing=16,
-        wrap=True,
-        alignment=ft.MainAxisAlignment.CENTER,
-    )
-    
-    # Build responsive layout based on screen size
-    def build_layout():
-        if is_mobile():
-            # Mobile layout: stack everything vertically
-            return ft.Column(
-                controls=[
-                    time_section,
-                    ft.Container(height=2),
-                    time_budget_section,
-                    ft.Container(height=24),
-                    analytics_preview,
-                    ft.Container(height=24),
-                    upcoming_tasks_section,
-                    ft.Container(height=24),
-                    summary_cards,
-                ],
-                scroll=ft.ScrollMode.AUTO,
-                expand=True,
-            )
-        else:
-            # Desktop layout: two-column design
-            return ft.Column(
-                controls=[
-                    # Top section with left and right columns
-                    ft.Row(
-                        controls=[
-                            # Left column
-                            ft.Column(
-                                controls=[
-                                    time_section,
-                                    upcoming_tasks_section,
-                                ],
-                                expand=1,
-                            ),
-                            
-                            ft.Container(width=24),
-                            
-                            # Right column
-                            ft.Column(
-                                controls=[
-                                    analytics_preview,
-                                    time_budget_section,
-                                ],
-                                expand=1,
-                            ),
-                        ],
-                        expand=True,
-                        vertical_alignment=ft.CrossAxisAlignment.START,
-                    ),
 
-                    # Bottom section with summary cards
-                    ft.Container(height=12),
-                    ft.Container(
-                        content=summary_cards,
-                        alignment=ft.alignment.center,
-                    ),
-                ],
-                scroll=ft.ScrollMode.AUTO,
-            )
-    
-    dashboard_container = ft.Container(
-        content=build_layout(),
-        padding=24,
-        expand=True,
-        bgcolor=ft.Colors.GREY_50,
+    stats_row = ft.Container(
+        content=ft.Row(
+            controls=[
+                ft.Text(
+                    f"{completed_today_count} done today",
+                    size=13,
+                    color=title_color,
+                    weight=ft.FontWeight.W_500,
+                ),
+                ft.Container(width=1, height=14, bgcolor=border_color),
+                ft.Text(
+                    f"{total_tasks_count} upcoming",
+                    size=13,
+                    color=accent_color,
+                ),
+                ft.Container(expand=True),
+                ft.TextButton(
+                    "View Analytics →",
+                    style=ft.ButtonStyle(color=accent_color),
+                    on_click=go_to_analytics,
+                ),
+            ],
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            spacing=12,
+        ),
+        padding=ft.padding.symmetric(horizontal=24, vertical=14),
+        border_radius=12,
+        bgcolor=panel_bg,
+        shadow=drop_shadow,
+        margin=ft.margin.symmetric(horizontal=24),
     )
-    
-    # Add window resize listener
-    def on_window_resize(e=None):
-        dashboard_container.content = build_layout()
-        page.update()
-    
-    page.on_resized = on_window_resize
-    
+
+    dashboard_container = ft.Container(
+        content=ft.Column(
+            controls=[
+                time_section,
+                ft.Container(height=8),
+                time_budget_section,
+                ft.Container(height=16),
+                upcoming_tasks_section,
+                ft.Container(height=16),
+                stats_row,
+                ft.Container(height=24),
+            ],
+            scroll=ft.ScrollMode.AUTO,
+            expand=True,
+            spacing=0,
+        ),
+        expand=True,
+        gradient=ft.LinearGradient(
+            begin=ft.alignment.top_center,
+            end=ft.alignment.bottom_center,
+            colors=["#DDE9FB", "#FFFFFF"],
+        ),
+    )
+
     return dashboard_container

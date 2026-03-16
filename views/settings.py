@@ -16,6 +16,21 @@ def SettingsPage(page: ft.Page, session: dict = None):
     
     auth = AuthManager()
     user = session["user"]
+    panel_bg = "#FFFFFF"
+    soft_panel_bg = "#EDF2FA"
+    border_color = "#B7C4D8"
+    title_color = "#23211E"
+    accent_color = "#6E7889"
+    drop_shadow = ft.BoxShadow(
+        spread_radius=0,
+        blur_radius=3,
+        color=ft.Colors.with_opacity(0.24, ft.Colors.BLACK),
+        offset=ft.Offset(0, 2),
+    )
+    window_width = page.window.width or 430
+    is_mobile = window_width < 900
+    card_width = max(320, min(760, window_width - 48))
+    field_width = max(250, min(420, card_width - 56))
     
     # Individual message fields for each section
     profile_message = ft.Text("", size=12)
@@ -33,26 +48,26 @@ def SettingsPage(page: ft.Page, session: dict = None):
     username_field = ft.TextField(
         label="Username",
         value=user.username or "",
-        width=320,
+        width=field_width,
         border_radius=12,
-        bgcolor=ft.Colors.GREY_50,
-        border_color=ft.Colors.GREY_400,
+        bgcolor=panel_bg,
+        border_color=border_color,
     )
     fullname_field = ft.TextField(
         label="Full Name",
         value=user.full_name or "",
-        width=320,
+        width=field_width,
         border_radius=12,
-        bgcolor=ft.Colors.GREY_50,
-        border_color=ft.Colors.GREY_400,
+        bgcolor=panel_bg,
+        border_color=border_color,
     )
     email_field = ft.TextField(
         label="Email",
         value=user.email or "",
-        width=320,
+        width=field_width,
         border_radius=12,
-        bgcolor=ft.Colors.GREY_50,
-        border_color=ft.Colors.GREY_400,
+        bgcolor=panel_bg,
+        border_color=border_color,
     )
     
     # Password change fields
@@ -60,28 +75,28 @@ def SettingsPage(page: ft.Page, session: dict = None):
         label="Current Password",
         password=True,
         can_reveal_password=True,
-        width=320,
+        width=field_width,
         border_radius=12,
-        bgcolor=ft.Colors.GREY_50,
-        border_color=ft.Colors.GREY_300,
+        bgcolor=panel_bg,
+        border_color=border_color,
     )
     new_password = ft.TextField(
         label="New Password",
         password=True,
         can_reveal_password=True,
-        width=320,
+        width=field_width,
         border_radius=12,
-        bgcolor=ft.Colors.GREY_50,
-        border_color=ft.Colors.GREY_300,
+        bgcolor=panel_bg,
+        border_color=border_color,
     )
     confirm_password = ft.TextField(
         label="Confirm New Password",
         password=True,
         can_reveal_password=True,
-        width=320,
+        width=field_width,
         border_radius=12,
-        bgcolor=ft.Colors.GREY_50,
-        border_color=ft.Colors.GREY_300,
+        bgcolor=panel_bg,
+        border_color=border_color,
     )
     
     def save_profile(e):
@@ -345,8 +360,8 @@ def SettingsPage(page: ft.Page, session: dict = None):
     avatar_placeholder = ft.Container(
         width=96,
         height=96,
-        bgcolor=ft.Colors.GREY_100,
-        border=ft.border.all(1, ft.Colors.GREY_300),
+        bgcolor=soft_panel_bg,
+        border=ft.border.all(1.5, border_color),
         border_radius=48,
         alignment=ft.alignment.center,
         content=avatar_content,
@@ -367,8 +382,9 @@ def SettingsPage(page: ft.Page, session: dict = None):
                             dialog_title="Select Profile Picture"
                         ),
                         style=ft.ButtonStyle(
-                            color=ft.Colors.GREY_700,
-                            bgcolor=ft.Colors.GREY_200,
+                            color=title_color,
+                            bgcolor=soft_panel_bg,
+                            side=ft.BorderSide(1, border_color),
                         ),
                     ),
                     ft.IconButton(
@@ -394,7 +410,7 @@ def SettingsPage(page: ft.Page, session: dict = None):
                     color=ft.Colors.WHITE,
                     weight=ft.FontWeight.W_600,
                 ),
-                bgcolor=ft.Colors.GREY_800 if user.role == "admin" else ft.Colors.GREY_500,
+                bgcolor=accent_color,
                 padding=ft.padding.symmetric(horizontal=12, vertical=4),
                 border_radius=12,
             ),
@@ -407,28 +423,32 @@ def SettingsPage(page: ft.Page, session: dict = None):
     profile_card = ft.Container(
         content=ft.Column(
             controls=[
-                ft.Text("Profile Information", size=18, weight=ft.FontWeight.W_500, color=ft.Colors.GREY_900),
-                ft.Container(width=320, height=1, bgcolor=ft.Colors.GREY_600),
+                ft.Text("Profile Information", size=18, weight=ft.FontWeight.W_500, color=title_color),
+                ft.Container(width=field_width, height=1, bgcolor=border_color),
                 username_field,
                 fullname_field,
                 email_field,
                 profile_message,
                 ft.ElevatedButton(
                     "Save Profile",
-                    bgcolor=ft.Colors.GREY_800,
+                    bgcolor=accent_color,
                     color=ft.Colors.WHITE,
                     on_click=save_profile,
-                    style=ft.ButtonStyle(overlay_color=ft.Colors.GREY_700),
+                    style=ft.ButtonStyle(
+                        overlay_color=ft.Colors.with_opacity(0.08, ft.Colors.BLACK),
+                        side=ft.BorderSide(1, border_color),
+                    ),
                 ),
             ],
             spacing=12,
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
         ),
-        bgcolor=ft.Colors.WHITE,
-        border=ft.border.all(1, ft.Colors.GREY_600),
+        bgcolor=panel_bg,
+        border=ft.border.all(1.5, border_color),
         border_radius=12,
         padding=24,
-        width=620,
+        width=card_width,
+        shadow=drop_shadow,
         alignment=ft.alignment.center,
     )
 
@@ -436,28 +456,32 @@ def SettingsPage(page: ft.Page, session: dict = None):
     password_card = ft.Container(
         content=ft.Column(
             controls=[
-                ft.Text("Change Password", size=18, weight=ft.FontWeight.W_500, color=ft.Colors.GREY_900),
-                ft.Container(width=320, height=1, bgcolor=ft.Colors.GREY_600),
+                ft.Text("Change Password", size=18, weight=ft.FontWeight.W_500, color=title_color),
+                ft.Container(width=field_width, height=1, bgcolor=border_color),
                 current_password,
                 new_password,
                 confirm_password,
                 password_message,
                 ft.ElevatedButton(
                     "Change Password",
-                    bgcolor=ft.Colors.GREY_800,
+                    bgcolor=accent_color,
                     color=ft.Colors.WHITE,
                     on_click=save_password,
-                    style=ft.ButtonStyle(overlay_color=ft.Colors.GREY_700),
+                    style=ft.ButtonStyle(
+                        overlay_color=ft.Colors.with_opacity(0.08, ft.Colors.BLACK),
+                        side=ft.BorderSide(1, border_color),
+                    ),
                 ),
             ],
             spacing=12,
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
         ),
-        bgcolor=ft.Colors.WHITE,
-        border=ft.border.all(1, ft.Colors.GREY_600),
+        bgcolor=panel_bg,
+        border=ft.border.all(1.5, border_color),
         border_radius=12,
         padding=24,
-        width=620,
+        width=card_width,
+        shadow=drop_shadow,
         alignment=ft.alignment.center,
     )
 
@@ -466,8 +490,8 @@ def SettingsPage(page: ft.Page, session: dict = None):
             controls=[
                 ft.Row(
                     controls=[
-                        ft.Icon(ft.Icons.SETTINGS_OUTLINED, size=28, color=ft.Colors.GREY_800),
-                        ft.Text("Settings", size=24, weight=ft.FontWeight.W_400, color=ft.Colors.GREY_900),
+                        ft.Icon(ft.Icons.SETTINGS_OUTLINED, size=28, color=accent_color),
+                        ft.Text("Settings", size=24 if is_mobile else 28, weight=ft.FontWeight.W_500, color=title_color),
                     ],
                     spacing=8,
                 ),
@@ -477,14 +501,14 @@ def SettingsPage(page: ft.Page, session: dict = None):
                 profile_card,
                 password_card,
 
-                ft.Container(width=896, height=1, bgcolor=ft.Colors.GREY_300),
+                ft.Container(width=card_width, height=1, bgcolor=border_color),
 
                 ft.TextButton(
                     "Logout",
                     icon=ft.Icons.LOGOUT,
                     style=ft.ButtonStyle(
-                        color=ft.Colors.GREY_700,
-                        overlay_color=ft.Colors.GREY_200,
+                        color=title_color,
+                        overlay_color=ft.Colors.with_opacity(0.08, ft.Colors.BLACK),
                     ),
                     on_click=logout,
                 ),
@@ -493,8 +517,12 @@ def SettingsPage(page: ft.Page, session: dict = None):
             spacing=24,
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
         ),
-        padding=24,
+        padding=ft.padding.only(left=24, right=24, top=66, bottom=24),
         expand=True,
-        bgcolor=ft.Colors.WHITE,
+        gradient=ft.LinearGradient(
+            begin=ft.alignment.top_center,
+            end=ft.alignment.bottom_center,
+            colors=["#DDE9FB", "#FFFFFF"],
+        ),
         alignment=ft.alignment.top_center,
     )

@@ -4,7 +4,7 @@ Visual wizard for time budget setup (without work questions)
 """
 
 import flet as ft
-from datetime import datetime
+from datetime import datetime, timedelta
 from state.onboarding_manager import OnboardingManager
 from managers.schedule_manager import ScheduleManager
 
@@ -20,6 +20,20 @@ def OnboardingPage(page: ft.Page, on_complete, session: dict):
     
     manager = OnboardingManager()
     schedule_manager = ScheduleManager()
+    panel_bg = "#FFFFFF"
+    soft_panel_bg = "#EDF2FA"
+    border_color = "#B7C4D8"
+    title_color = "#23211E"
+    accent_color = "#6E7889"
+    drop_shadow = ft.BoxShadow(
+        spread_radius=0,
+        blur_radius=3,
+        color=ft.Colors.with_opacity(0.24, ft.Colors.BLACK),
+        offset=ft.Offset(0, 2),
+    )
+    window_width = page.window.width or 430
+    content_width = max(320, min(760, window_width - 44))
+    form_width = max(280, min(420, content_width - 40))
 
     user_id = session.get("user_id") if session else None
     if not user_id and session and session.get("user"):
@@ -34,7 +48,19 @@ def OnboardingPage(page: ft.Page, on_complete, session: dict):
         "work_days_per_week": 0,
     }
     
-    current_step = ft.Text("Step 1 of 4", size=12, color=ft.Colors.GREY_600)
+    current_step = ft.Container(
+        content=ft.Text("Step 1 of 4", size=12, color=accent_color, weight=ft.FontWeight.W_700),
+        padding=ft.padding.symmetric(horizontal=12, vertical=6),
+        bgcolor=soft_panel_bg,
+        border=ft.border.all(1, border_color),
+        border_radius=999,
+    )
+
+    primary_btn_style = ft.ButtonStyle(
+        bgcolor=accent_color,
+        color=ft.Colors.WHITE,
+        side=ft.BorderSide(1, border_color),
+    )
     
     # ==================== STEP 1: Sleep Hours ====================
     def build_step_1():
@@ -49,9 +75,9 @@ def OnboardingPage(page: ft.Page, on_complete, session: dict):
         return ft.Container(
             content=ft.Column(
                 controls=[
-                    ft.Text("Let's set up your time budget", size=28, weight=ft.FontWeight.BOLD),
+                    ft.Text("Let's set up your time budget", size=28, weight=ft.FontWeight.BOLD, color=title_color, text_align=ft.TextAlign.CENTER),
                     ft.Container(height=10),
-                    ft.Text("How many hours do you sleep per night?", size=16),
+                    ft.Text("How many hours do you sleep per night?", size=16, text_align=ft.TextAlign.CENTER),
                     ft.Container(height=30),
                     selected_hours,
                     ft.Slider(
@@ -61,79 +87,116 @@ def OnboardingPage(page: ft.Page, on_complete, session: dict):
                         divisions=7,
                         label="{value} hrs",
                         on_change=on_slider_change,
-                        width=400,
+                        width=form_width,
                     ),
                     ft.Container(height=10),
-                    ft.Text("(Most people need 7-9 hours)", size=12, color=ft.Colors.GREY_600),
+                    ft.Text("(Most people need 7-9 hours)", size=12, color=accent_color),
                     ft.Container(height=40),
                     ft.ElevatedButton(
                         "Next",
                         on_click=lambda e: show_step(2),
-                        style=ft.ButtonStyle(
-                            bgcolor=ft.Colors.BLUE_400,
-                            color=ft.Colors.WHITE,
-                        ),
+                        style=primary_btn_style,
                         width=200,
                         height=50,
                     ),
                 ],
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             ),
-            padding=40,
+            padding=24,
+            width=content_width,
+            border=ft.border.all(1.5, border_color),
+            border_radius=12,
+            bgcolor=panel_bg,
+            shadow=drop_shadow,
         )
     
     # ==================== STEP 2: Wake Time ====================
     def build_step_2():
         wake_hour = ft.Text("7:00 AM", size=20, weight=ft.FontWeight.BOLD)
-        
-        def on_hour_change(e):
-            hour = int(e.control.value)
-            onboarding_data["wake_time"] = f"{hour:02d}:00"
-            
-            # Format for display
+        wake_time_field = ft.TextField(
+            value="07:00",
+            label="Wake Time",
+            read_only=True,
+            width=min(260, form_width - 30),
+            border_color=border_color,
+            bgcolor=panel_bg,
+        )
+
+        def format_12h(hour: int, minute: int):
             if hour == 0:
-                display = "12:00 AM"
-            elif hour < 12:
-                display = f"{hour}:00 AM"
-            elif hour == 12:
-                display = "12:00 PM"
-            else:
-                display = f"{hour-12}:00 PM"
-            
-            wake_hour.value = display
-            page.update()
+                return f"12:{minute:02d} AM"
+            if hour < 12:
+                return f"{hour}:{minute:02d} AM"
+            if hour == 12:
+                return f"12:{minute:02d} PM"
+            return f"{hour - 12}:{minute:02d} PM"
+
+        def apply_wake_time(hour: int, minute: int):
+            onboarding_data["wake_time"] = f"{hour:02d}:{minute:02d}"
+            wake_time_field.value = onboarding_data["wake_time"]
+            wake_hour.value = format_12h(hour, minute)
+
+        def open_wake_time_picker(_):
+            current_text = (wake_time_field.value or "07:00").strip()
+            init_hour = 7
+            init_minute = 0
+            try:
+                current = datetime.strptime(current_text, "%H:%M")
+                init_hour = current.hour
+                init_minute = current.minute
+            except ValueError:
+                pass
+
+            def on_change(e):
+                if e.control.value is not None:
+                    picked = e.control.value
+                    apply_wake_time(picked.hour, picked.minute)
+                    page.update()
+
+            picker = ft.TimePicker(
+                value=datetime(2000, 1, 1, init_hour, init_minute),
+                on_change=on_change,
+            )
+            page.open(picker)
+
+        apply_wake_time(7, 0)
         
         return ft.Container(
             content=ft.Column(
                 controls=[
-                    ft.Text("What time do you usually wake up?", size=28, weight=ft.FontWeight.BOLD),
+                    ft.Text("What time do you usually wake up?", size=28, weight=ft.FontWeight.BOLD, color=title_color, text_align=ft.TextAlign.CENTER),
                     ft.Container(height=10),
-                    ft.Text("This defines when your 'day' starts", size=14, color=ft.Colors.GREY_600),
+                    ft.Text("This defines when your 'day' starts", size=14, color=accent_color, text_align=ft.TextAlign.CENTER),
                     ft.Container(height=30),
                     wake_hour,
-                    ft.Slider(
-                        min=0,
-                        max=23,
-                        value=7,
-                        divisions=23,
-                        label="{value}:00",
-                        on_change=on_hour_change,
-                        width=400,
+                    ft.Row(
+                        controls=[
+                            wake_time_field,
+                            ft.IconButton(
+                                icon=ft.Icons.ACCESS_TIME,
+                                tooltip="Pick wake time",
+                                icon_color=ft.Colors.BLUE_GREY_600,
+                                on_click=open_wake_time_picker,
+                            ),
+                        ],
+                        alignment=ft.MainAxisAlignment.CENTER,
+                        spacing=8,
                     ),
                     ft.Container(height=10),
-                    ft.Text("(Your time budget resets at this time each day)", size=12, color=ft.Colors.GREY_600),
+                    ft.Text("(Your time budget resets at this time each day)", size=12, color=accent_color),
                     ft.Container(height=40),
                     ft.Row(
                         controls=[
-                            ft.TextButton("← Back", on_click=lambda e: show_step(1)),
+                            ft.TextButton(
+                                "← Back",
+                                on_click=lambda e: show_step(1),
+                                style=ft.ButtonStyle(color=title_color),
+                            ),
                             ft.Container(width=20),
                             ft.ElevatedButton(
                                 "Next",
                                 on_click=lambda e: show_step(3),
-                                style=ft.ButtonStyle(
-                                    bgcolor=ft.Colors.BLUE_400,
-                                    color=ft.Colors.WHITE,
-                                ),
+                                style=primary_btn_style,
                                 width=200,
                                 height=50,
                             ),
@@ -142,7 +205,12 @@ def OnboardingPage(page: ft.Page, on_complete, session: dict):
                 ],
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             ),
-            padding=40,
+            padding=24,
+            width=content_width,
+            border=ft.border.all(1.5, border_color),
+            border_radius=12,
+            bgcolor=panel_bg,
+            shadow=drop_shadow,
         )
     
     # ==================== STEP 3: Weekly Schedule ====================
@@ -153,13 +221,13 @@ def OnboardingPage(page: ft.Page, on_complete, session: dict):
         error_text = ft.Text("", color=ft.Colors.RED_600, size=12)
         day_labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
         day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-        active_day_text = ft.Text("", size=14, color=ft.Colors.BLUE_700, weight=ft.FontWeight.W_600)
+        active_day_text = ft.Text("", size=14, color=accent_color, weight=ft.FontWeight.W_600)
 
         def refresh_day_buttons():
             for day_index, button in day_buttons.items():
                 is_active = day_index == selected_day["value"]
-                button.bgcolor = ft.Colors.BLUE_400 if is_active else ft.Colors.GREY_200
-                button.color = ft.Colors.WHITE if is_active else ft.Colors.GREY_800
+                button.bgcolor = accent_color if is_active else soft_panel_bg
+                button.color = ft.Colors.WHITE if is_active else title_color
             active_day_text.value = f"Editing schedule for: {day_names[selected_day['value']]}"
             if active_day_text.page is not None:
                 active_day_text.update()
@@ -213,10 +281,10 @@ def OnboardingPage(page: ft.Page, on_complete, session: dict):
                                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
                             ),
-                            border=ft.border.all(1, ft.Colors.GREY_300),
-                            border_radius=8,
+                            border=ft.border.all(1, border_color),
+                            border_radius=10,
                             padding=10,
-                            bgcolor=ft.Colors.WHITE,
+                            bgcolor=panel_bg,
                         )
                     )
 
@@ -234,20 +302,46 @@ def OnboardingPage(page: ft.Page, on_complete, session: dict):
             load_classes()
 
         def show_add_class_dialog(e):
-            course_name_field = ft.TextField(label="Course Name", width=360, border_color=ft.Colors.GREY_400)
+            course_name_field = ft.TextField(label="Course Name", width=min(360, form_width), border_color=border_color, bgcolor=panel_bg)
             start_time_field = ft.TextField(
                 label="Start Time (24-hour, HH:MM)",
-                width=360,
+                width=min(360, form_width),
                 hint_text="e.g., 13:00 for 1:00 PM",
-                border_color=ft.Colors.GREY_400,
+                read_only=True,
+                border_color=border_color,
+                bgcolor=panel_bg,
             )
             end_time_field = ft.TextField(
                 label="End Time (24-hour, HH:MM)",
-                width=360,
+                width=min(360, form_width),
                 hint_text="e.g., 14:30 for 2:30 PM",
-                border_color=ft.Colors.GREY_400,
+                read_only=True,
+                border_color=border_color,
+                bgcolor=panel_bg,
             )
             dialog_error = ft.Text("", color=ft.Colors.RED_600, size=12)
+
+            def open_time_picker_for(target_field: ft.TextField, fallback: str):
+                init_hour = 0
+                init_minute = 0
+                try:
+                    parsed = datetime.strptime((target_field.value or fallback).strip(), "%H:%M")
+                    init_hour = parsed.hour
+                    init_minute = parsed.minute
+                except ValueError:
+                    pass
+
+                def on_change(change_event):
+                    if change_event.control.value is not None:
+                        picked = change_event.control.value
+                        target_field.value = f"{picked.hour:02d}:{picked.minute:02d}"
+                        page.update()
+
+                picker = ft.TimePicker(
+                    value=datetime(2000, 1, 1, init_hour, init_minute),
+                    on_change=on_change,
+                )
+                page.open(picker)
 
             def save_class(event):
                 if not user_id:
@@ -283,8 +377,30 @@ def OnboardingPage(page: ft.Page, on_complete, session: dict):
                     controls=[
                         ft.Text("Use 24-hour time format (HH:MM)", size=12, color=ft.Colors.GREY_600),
                         course_name_field,
-                        start_time_field,
-                        end_time_field,
+                        ft.Row(
+                            controls=[
+                                ft.Container(content=start_time_field, expand=True),
+                                ft.IconButton(
+                                    icon=ft.Icons.ACCESS_TIME,
+                                    tooltip="Pick start time",
+                                    icon_color=ft.Colors.BLUE_GREY_600,
+                                    on_click=lambda event: open_time_picker_for(start_time_field, "08:00"),
+                                ),
+                            ],
+                            spacing=8,
+                        ),
+                        ft.Row(
+                            controls=[
+                                ft.Container(content=end_time_field, expand=True),
+                                ft.IconButton(
+                                    icon=ft.Icons.ACCESS_TIME,
+                                    tooltip="Pick end time",
+                                    icon_color=ft.Colors.BLUE_GREY_600,
+                                    on_click=lambda event: open_time_picker_for(end_time_field, "09:00"),
+                                ),
+                            ],
+                            spacing=8,
+                        ),
                         dialog_error,
                     ],
                     width=380,
@@ -292,10 +408,14 @@ def OnboardingPage(page: ft.Page, on_complete, session: dict):
                     spacing=10,
                 ),
                 actions=[
-                    ft.TextButton("Cancel", on_click=lambda event: setattr(dialog, "open", False) or page.update()),
+                    ft.TextButton(
+                        "Cancel",
+                        on_click=lambda event: setattr(dialog, "open", False) or page.update(),
+                        style=ft.ButtonStyle(color=title_color),
+                    ),
                     ft.ElevatedButton(
                         "Save",
-                        bgcolor=ft.Colors.BLUE_400,
+                        bgcolor=accent_color,
                         color=ft.Colors.WHITE,
                         on_click=save_class,
                     ),
@@ -327,9 +447,9 @@ def OnboardingPage(page: ft.Page, on_complete, session: dict):
         return ft.Container(
             content=ft.Column(
                 controls=[
-                    ft.Text("Your Weekly Schedule", size=28, weight=ft.FontWeight.BOLD),
+                    ft.Text("Your Weekly Schedule", size=28, weight=ft.FontWeight.BOLD, color=title_color, text_align=ft.TextAlign.CENTER),
                     ft.Container(height=6),
-                    ft.Text("Add your class blocks for each day.", size=14, color=ft.Colors.GREY_600),
+                    ft.Text("Add your class blocks for each day.", size=14, color=accent_color, text_align=ft.TextAlign.CENTER),
                     ft.Container(height=16),
                     day_tab_row,
                     ft.Container(height=6),
@@ -337,20 +457,17 @@ def OnboardingPage(page: ft.Page, on_complete, session: dict):
                     ft.Container(height=12),
                     ft.Container(
                         content=class_list,
-                        width=420,
+                        width=form_width,
                         padding=12,
-                        border=ft.border.all(1, ft.Colors.GREY_300),
-                        border_radius=8,
-                        bgcolor=ft.Colors.GREY_50,
+                        border=ft.border.all(1.5, border_color),
+                        border_radius=10,
+                        bgcolor=soft_panel_bg,
                     ),
                     ft.Container(height=10),
                     ft.ElevatedButton(
                         "Add Class",
                         on_click=show_add_class_dialog,
-                        style=ft.ButtonStyle(
-                            bgcolor=ft.Colors.BLUE_400,
-                            color=ft.Colors.WHITE,
-                        ),
+                        style=primary_btn_style,
                         width=180,
                         height=44,
                     ),
@@ -364,10 +481,7 @@ def OnboardingPage(page: ft.Page, on_complete, session: dict):
                             ft.ElevatedButton(
                                 "Next",
                                 on_click=lambda e: show_step(4),
-                                style=ft.ButtonStyle(
-                                    bgcolor=ft.Colors.BLUE_400,
-                                    color=ft.Colors.WHITE,
-                                ),
+                                style=primary_btn_style,
                                 width=200,
                                 height=50,
                             ),
@@ -376,7 +490,12 @@ def OnboardingPage(page: ft.Page, on_complete, session: dict):
                 ],
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             ),
-            padding=40,
+            padding=24,
+            width=content_width,
+            border=ft.border.all(1.5, border_color),
+            border_radius=12,
+            bgcolor=panel_bg,
+            shadow=drop_shadow,
         )
 
     # ==================== STEP 4: Summary ====================
@@ -389,9 +508,6 @@ def OnboardingPage(page: ft.Page, on_complete, session: dict):
             work_days_per_week=0,
             wake_time=onboarding_data["wake_time"],
         )
-        
-        # Recommended study goal
-        study_goal = budget["free_hours_per_day"] * 0.35
         
         # Add error message display
         error_msg = ft.Text("", color=ft.Colors.RED_600, size=14)
@@ -431,7 +547,7 @@ def OnboardingPage(page: ft.Page, on_complete, session: dict):
         return ft.Container(
             content=ft.Column(
                 controls=[
-                    ft.Text("Your Time Budget", size=28, weight=ft.FontWeight.BOLD),
+                    ft.Text("Your Time Budget", size=28, weight=ft.FontWeight.BOLD, color=title_color, text_align=ft.TextAlign.CENTER),
                     ft.Container(height=30),
                     
                     # Budget breakdown card
@@ -469,56 +585,33 @@ def OnboardingPage(page: ft.Page, on_complete, session: dict):
                                 ),
                             ],
                         ),
-                        bgcolor=ft.Colors.BLUE_50,
-                        border=ft.border.all(2, ft.Colors.BLUE_200),
+                        bgcolor=soft_panel_bg,
+                        border=ft.border.all(1.5, border_color),
                         border_radius=10,
                         padding=20,
-                        width=400,
+                        width=form_width,
                     ),
                     
-                    ft.Container(height=30),
-                    
-                    # Recommendation
-                    ft.Container(
-                        content=ft.Column(
-                            controls=[
-                                ft.Text("💡 Recommended Study Goal", size=16, weight=ft.FontWeight.BOLD),
-                                ft.Container(height=10),
-                                ft.Text(
-                                    f"{study_goal:.1f} hours per day",
-                                    size=24,
-                                    weight=ft.FontWeight.BOLD,
-                                    color=ft.Colors.BLUE_600,
-                                ),
-                                ft.Text(
-                                    "(About 35% of your free time)",
-                                    size=12,
-                                    color=ft.Colors.GREY_600,
-                                ),
-                            ],
-                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                        ),
-                        bgcolor=ft.Colors.AMBER_50,
-                        border_radius=10,
-                        padding=20,
-                        width=400,
-                    ),
-                    
-                    ft.Container(height=30),
+                    ft.Container(height=20),
                     error_msg,
                     ft.Text("You can adjust this later in Settings!", size=12, color=ft.Colors.GREY_600),
                     ft.Container(height=20),
                     
                     ft.Row(
                         controls=[
-                            ft.TextButton("← Back", on_click=lambda e: show_step(3)),
+                            ft.TextButton(
+                                "← Back",
+                                on_click=lambda e: show_step(3),
+                                style=ft.ButtonStyle(color=title_color),
+                            ),
                             ft.Container(width=20),
                             ft.ElevatedButton(
                                 "Start Using TYMATE",
                                 on_click=finish_onboarding,
                                 style=ft.ButtonStyle(
-                                    bgcolor=ft.Colors.GREEN_600,
+                                    bgcolor=accent_color,
                                     color=ft.Colors.WHITE,
+                                    side=ft.BorderSide(1, border_color),
                                 ),
                                 width=250,
                                 height=50,
@@ -528,14 +621,19 @@ def OnboardingPage(page: ft.Page, on_complete, session: dict):
                 ],
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             ),
-            padding=40,
+            padding=24,
+            width=content_width,
+            border=ft.border.all(1.5, border_color),
+            border_radius=12,
+            bgcolor=panel_bg,
+            shadow=drop_shadow,
         )
     
     # ==================== Step Navigation ====================
     step_content = ft.Container()
     
     def show_step(step_num):
-        current_step.value = f"Step {step_num} of 4"
+        current_step.content.value = f"Step {step_num} of 4"
         
         if step_num == 1:
             step_content.content = build_step_1()
@@ -554,13 +652,21 @@ def OnboardingPage(page: ft.Page, on_complete, session: dict):
     return ft.Container(
         content=ft.Column(
             controls=[
+                ft.Container(height=16),
                 current_step,
                 ft.Container(height=20),
                 step_content,
+                ft.Container(height=24),
             ],
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             scroll=ft.ScrollMode.AUTO,
         ),
         expand=True,
         alignment=ft.alignment.center,
+        padding=ft.padding.symmetric(horizontal=16),
+        gradient=ft.LinearGradient(
+            begin=ft.alignment.top_center,
+            end=ft.alignment.bottom_center,
+            colors=["#DDE9FB", "#FFFFFF"],
+        ),
     )

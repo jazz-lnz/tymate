@@ -11,6 +11,22 @@ def LoginPage(page: ft.Page, session: dict):
     """
     
     auth = AuthManager()
+    panel_bg = "#FFFFFF"
+    border_color = "#B7C4D8"
+    title_color = "#23211E"
+    accent_color = "#6E7889"
+    soft_panel_bg = "#EDF2FA"
+    page_bg_top = "#DDE9FB"
+    page_bg_bottom = "#FFFFFF"
+    drop_shadow = ft.BoxShadow(
+        spread_radius=0,
+        blur_radius=3,
+        color=ft.Colors.with_opacity(0.24, ft.Colors.BLACK),
+        offset=ft.Offset(0, 2),
+    )
+    window_width = page.window.width or 430
+    is_mobile = window_width < 700
+    form_width = max(300, min(460, window_width - (32 if is_mobile else 80)))
     
     # Track if we're in login or signup mode
     is_signup_mode = False
@@ -18,10 +34,11 @@ def LoginPage(page: ft.Page, session: dict):
     # Form fields with underline-only borders
     username_field = ft.TextField(
         hint_text="Username",
-        width=400,
+        width=form_width,
         border=ft.InputBorder.UNDERLINE,
         prefix_icon=ft.Icons.PERSON_OUTLINE,
         text_size=15,
+        border_color=border_color,
         on_submit=lambda e: submit_current_mode(e),
         autofocus=True,
     )
@@ -30,29 +47,32 @@ def LoginPage(page: ft.Page, session: dict):
         hint_text="Password",
         password=True,
         can_reveal_password=True,
-        width=400,
+        width=form_width,
         border=ft.InputBorder.UNDERLINE,
         prefix_icon=ft.Icons.LOCK_OUTLINE,
         text_size=15,
+        border_color=border_color,
         on_submit=lambda e: submit_current_mode(e),
     )
     
     email_field = ft.TextField(
         hint_text="Email (optional)",
-        width=400,
+        width=form_width,
         border=ft.InputBorder.UNDERLINE,
         prefix_icon=ft.Icons.EMAIL_OUTLINED,
         text_size=15,
+        border_color=border_color,
         visible=False,
         on_submit=lambda e: submit_current_mode(e),
     )
     
     fullname_field = ft.TextField(
         hint_text="Full Name (optional)",
-        width=400,
+        width=form_width,
         border=ft.InputBorder.UNDERLINE,
         prefix_icon=ft.Icons.BADGE_OUTLINED,
         text_size=15,
+        border_color=border_color,
         visible=False,
         on_submit=lambda e: submit_current_mode(e),
     )
@@ -60,18 +80,19 @@ def LoginPage(page: ft.Page, session: dict):
     error_message = ft.Text("", color=ft.Colors.RED_700, size=13, text_align=ft.TextAlign.CENTER)
     success_message = ft.Text("", color=ft.Colors.GREEN_700, size=13, text_align=ft.TextAlign.CENTER)
     
-    submit_button = ft.OutlinedButton(
+    submit_button = ft.ElevatedButton(
         "Login",
-        width=200,
-        height=40,
+        width=220 if is_mobile else 240,
+        height=42,
         style=ft.ButtonStyle(
-            side=ft.BorderSide(2, ft.Colors.GREY_800),
-            color=ft.Colors.GREY_900,
-            overlay_color=ft.Colors.GREY_200,
+            bgcolor=accent_color,
+            color=ft.Colors.WHITE,
+            side=ft.BorderSide(1, border_color),
+            overlay_color=ft.Colors.with_opacity(0.08, ft.Colors.BLACK),
         ),
     )
     
-    mode_title = ft.Text("Login", size=32, weight=ft.FontWeight.NORMAL, color=ft.Colors.GREY_900)
+    mode_title = ft.Text("Login", size=30 if is_mobile else 34, weight=ft.FontWeight.W_500, color=title_color)
     
     loading_indicator = ft.ProgressRing(visible=False, width=20, height=20, color=ft.Colors.GREY_800)
     
@@ -243,8 +264,8 @@ def LoginPage(page: ft.Page, session: dict):
     # Minimalist logo at top
     logo = ft.Row(
         controls=[
-            ft.Icon(ft.Icons.TIMER_OUTLINED, size=28, color=ft.Colors.GREY_800),
-            ft.Text("Tymate", size=24, weight=ft.FontWeight.W_400, color=ft.Colors.GREY_900),
+            ft.Icon(ft.Icons.TIMER_OUTLINED, size=28, color=accent_color),
+            ft.Text("Tymate", size=24, weight=ft.FontWeight.W_500, color=title_color),
         ],
         alignment=ft.MainAxisAlignment.CENTER,
         spacing=8,
@@ -254,7 +275,7 @@ def LoginPage(page: ft.Page, session: dict):
     tagline = ft.Text(
         "Loaded with tasks? Time it with Tymate.",
         size=14,
-        color=ft.Colors.GREY_600,
+        color=accent_color,
         text_align=ft.TextAlign.CENTER,
         italic=True,
     )
@@ -291,9 +312,9 @@ def LoginPage(page: ft.Page, session: dict):
 
     # Horizontal divider line
     divider = ft.Container(
-        width=400,
+        width=form_width,
         height=1,
-        bgcolor=ft.Colors.GREY_300,
+        bgcolor=border_color,
     )
 
     # Toggle link
@@ -302,14 +323,14 @@ def LoginPage(page: ft.Page, session: dict):
             ft.Text(
                 "Don't have an account?",
                 size=13,
-                color=ft.Colors.GREY_700,
+                color=accent_color,
             ),
             ft.TextButton(
                 "Sign up here",
                 on_click=toggle_mode,
                 style=ft.ButtonStyle(
-                    color=ft.Colors.GREY_900,
-                    overlay_color=ft.Colors.GREY_200,
+                    color=title_color,
+                    overlay_color=ft.Colors.with_opacity(0.08, ft.Colors.BLACK),
                 ),
             ),
         ],
@@ -338,22 +359,43 @@ def LoginPage(page: ft.Page, session: dict):
     
     toggle_link.controls[1].on_click = toggle_mode_enhanced
 
-    # Main centered container with minimal styling
-    return ft.Container(
+    login_panel = ft.Container(
         content=ft.Column(
             controls=[
-                ft.Container(expand=True),
                 login_form,
                 ft.Container(height=24),
                 divider,
                 ft.Container(height=16),
                 toggle_link,
-                ft.Container(expand=True),
+            ],
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            spacing=0,
+            tight=True,
+        ),
+        width=max(330, min(520, form_width + 70)),
+        padding=ft.padding.symmetric(horizontal=22, vertical=24),
+        border=ft.border.all(1.5, border_color),
+        border_radius=14,
+        bgcolor=panel_bg,
+        shadow=drop_shadow,
+    )
+
+    return ft.Container(
+        content=ft.Column(
+            controls=[
+                ft.Container(height=24),
+                login_panel,
+                ft.Container(height=20),
             ],
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             alignment=ft.MainAxisAlignment.CENTER,
         ),
         expand=True,
-        bgcolor=ft.Colors.WHITE,
         alignment=ft.alignment.center,
+        padding=ft.padding.symmetric(horizontal=16, vertical=22),
+        gradient=ft.LinearGradient(
+            begin=ft.alignment.top_center,
+            end=ft.alignment.bottom_center,
+            colors=[page_bg_top, page_bg_bottom],
+        ),
     )

@@ -1,137 +1,117 @@
 import flet as ft
 
 def create_navbar(page: ft.Page, current_route: str, session: dict, route_change: callable):
-    """Create navigation bar with active route highlighting and role-based menu items"""
+    """Create bottom mobile navigation bar."""
         
     def navigate_to(route):
         """Navigate to a specific route"""
         page.route = route
         route_change(route)
     
-    def toggle_sync(e):
-        """Toggle online/offline status"""
-        session["is_online"] = not session["is_online"]
-        page.update()
-    
-    # Determine active tab styling
     def is_active(route):
         return current_route == route or (route == "/tasks" and current_route.startswith("/tasks/"))
-    
-    # Online/Offline status indicator
-    status_text = "Online" if session["is_online"] else "Offline"
-    status_color = ft.Colors.GREEN_400 if session["is_online"] else ft.Colors.RED_400
-    
-    # Check if user is admin (RBAC)
+
     user = session.get("user")
     is_admin = user and user.role == "admin"
-    
-    # Build navigation controls
-    nav_controls = []
-    
-    # Add role-specific menu items
+
+    def nav_item(label: str, badge: str, route: str, center: bool = False):
+        active = is_active(route)
+        badge_bg = "#C9D8E8" if active else "#E7EAEE"
+        badge_text = "#233142" if active else "#7C8794"
+        label_color = "#2E3135" if active else "#6D737A"
+
+        if center:
+            return ft.Container(
+                content=ft.Column(
+                    controls=[
+                        ft.Container(
+                            content=ft.Text(
+                                badge,
+                                size=10,
+                                weight=ft.FontWeight.W_700,
+                                color=badge_text,
+                                text_align=ft.TextAlign.CENTER,
+                            ),
+                            width=30,
+                            height=24,
+                            border_radius=8,
+                            bgcolor=badge_bg,
+                            alignment=ft.alignment.center,
+                        ),
+                        ft.Container(height=4),
+                        ft.Text(
+                            label,
+                            size=11,
+                            weight=ft.FontWeight.W_700 if active else ft.FontWeight.W_600,
+                            color=label_color,
+                            text_align=ft.TextAlign.CENTER,
+                        ),
+                    ],
+                    spacing=0,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                on_click=lambda e: navigate_to(route),
+                ink=True,
+                expand=True,
+            )
+
+        return ft.Container(
+            content=ft.Column(
+                controls=[
+                    ft.Container(
+                        content=ft.Text(
+                            badge,
+                            size=10,
+                            weight=ft.FontWeight.W_700,
+                            color=badge_text,
+                            text_align=ft.TextAlign.CENTER,
+                        ),
+                        width=28,
+                        height=22,
+                        border_radius=7,
+                        bgcolor=badge_bg,
+                        alignment=ft.alignment.center,
+                    ),
+                    ft.Container(height=4),
+                    ft.Text(
+                        label,
+                        size=10,
+                        color=label_color,
+                        text_align=ft.TextAlign.CENTER,
+                    ),
+                ],
+                spacing=0,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            on_click=lambda e: navigate_to(route),
+            ink=True,
+            expand=True,
+        )
+
     if is_admin:
-        # Admin navbar - Admin, Audit Logs, User Activity, and Settings
-        nav_controls.extend([
-            ft.TextButton(
-                "Admin",
-                style=ft.ButtonStyle(
-                    color=ft.Colors.ORANGE_400 if is_active("/admin") else ft.Colors.WHITE,
-                    text_style=ft.TextStyle(size=16, weight=ft.FontWeight.W_600),
-                ),
-                on_click=lambda _: navigate_to("/admin"),
-            ),
-            ft.TextButton(
-                "Activity",
-                style=ft.ButtonStyle(
-                    color=ft.Colors.ORANGE_400 if is_active("/user_activity") else ft.Colors.WHITE,
-                    text_style=ft.TextStyle(size=16, weight=ft.FontWeight.W_600),
-                ),
-                on_click=lambda _: navigate_to("/user_activity"),
-            ),
-            ft.TextButton(
-                "Audit Logs",
-                style=ft.ButtonStyle(
-                    color=ft.Colors.ORANGE_400 if is_active("/audit_logs") else ft.Colors.WHITE,
-                    text_style=ft.TextStyle(size=16, weight=ft.FontWeight.W_600),
-                ),
-                on_click=lambda _: navigate_to("/audit_logs"),
-            ),
-        ])
+        nav_controls = [
+            nav_item("Admin", "AD", "/admin"),
+            nav_item("Activity", "AC", "/user_activity"),
+            nav_item("Audit", "AU", "/audit_logs"),
+            nav_item("Account", "ME", "/settings"),
+        ]
     else:
-        # Regular user navbar - Dashboard, Tasks, Log Hours
-        nav_controls.extend([
-            ft.TextButton(
-                "Dashboard",
-                style=ft.ButtonStyle(
-                    color=ft.Colors.ORANGE_400 if is_active("/dashboard") else ft.Colors.WHITE,
-                    text_style=ft.TextStyle(size=16, weight=ft.FontWeight.W_600),
-                ),
-                on_click=lambda _: navigate_to("/dashboard"),
-            ),
-            ft.TextButton(
-                "Tasks",
-                style=ft.ButtonStyle(
-                    color=ft.Colors.ORANGE_400 if is_active("/tasks") else ft.Colors.WHITE,
-                    text_style=ft.TextStyle(size=16, weight=ft.FontWeight.W_600),
-                ),
-                on_click=lambda _: navigate_to("/tasks"),
-            ),
-            ft.TextButton(
-                "Time It",
-                style=ft.ButtonStyle(
-                    color=ft.Colors.ORANGE_400 if is_active("/time_it") else ft.Colors.WHITE,
-                    text_style=ft.TextStyle(size=16, weight=ft.FontWeight.W_600),
-                ),
-                on_click=lambda _: navigate_to("/time_it"),
-            ),
-        ])
-    
-    # Add right-side controls
-    nav_controls.extend([
-        # Spacer to push right-side items to the end
-        ft.Container(expand=True),
-        
-# ----------------------------- Future Feature: Sync Toggle -----------------------------
-        # # Online/Offline status
-        # ft.Container(
-        #     content=ft.Text(
-        #         status_text,
-        #         color=ft.Colors.WHITE,
-        #         size=12,
-        #         weight=ft.FontWeight.BOLD,
-        #     ),
-        #     bgcolor=status_color,
-        #     border_radius=20,
-        #     padding=ft.padding.symmetric(horizontal=15, vertical=8),
-        # ),
-        # 
-        # # Toggle Sync button
-        # ft.OutlinedButton(
-        #     "Toggle Sync",
-        #     style=ft.ButtonStyle(
-        #         color=ft.Colors.WHITE,
-        #         side=ft.BorderSide(1, ft.Colors.WHITE),
-        #     ),
-        #     on_click=toggle_sync,
-        # ),
-        
-        # Settings icon
-        ft.IconButton(
-            icon=ft.Icons.SETTINGS,
-            icon_color=ft.Colors.WHITE,
-            icon_size=24,
-            tooltip="Settings",
-            on_click=lambda _: navigate_to("/settings"),
-        ),
-    ])
-    
+        nav_controls = [
+            nav_item("Home", "HM", "/dashboard"),
+            nav_item("Tasks", "TK", "/tasks"),
+            nav_item("Time It!", "TI", "/time_it", center=True),
+            nav_item("Analytics", "AN", "/analytics"),
+            nav_item("Account", "ME", "/settings"),
+        ]
+
     navbar = ft.Container(
         content=ft.Row(
             controls=nav_controls,
-            alignment=ft.MainAxisAlignment.START,
+            alignment=ft.MainAxisAlignment.SPACE_AROUND,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
         ),
-        bgcolor=ft.Colors.GREY_800,
-        padding=ft.padding.symmetric(horizontal=28, vertical=20),
+        bgcolor="#F6F4F1",
+        padding=ft.padding.only(left=10, right=10, top=4, bottom=6),
     )
     
     return navbar

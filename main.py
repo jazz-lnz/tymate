@@ -157,7 +157,16 @@ def main(page: ft.Page):
                 session["onboarding_completed"] = True
                 session["time_budget"] = budget
                 session["user_data"] = data
-                
+
+                if session.get("onboarding_edit_mode"):
+                    session["onboarding_edit_mode"] = False
+                    return_route = session.get("onboarding_return_route", "/settings")
+                    session.pop("onboarding_return_route", None)
+                    session["settings_flash_success"] = "Onboarding details updated successfully."
+                    page.route = return_route
+                    route_change(return_route)
+                    return
+
                 # Redirect to dashboard
                 page.route = "/dashboard"
                 route_change("/dashboard")

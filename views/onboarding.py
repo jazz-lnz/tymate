@@ -38,14 +38,27 @@ def OnboardingPage(page: ft.Page, on_complete, session: dict):
     user_id = session.get("user_id") if session else None
     if not user_id and session and session.get("user"):
         user_id = session["user"].id
+
+    edit_mode = bool(session.get("onboarding_edit_mode")) if session else False
+    existing_user = session.get("user") if session else None
+
+    def safe_float(value, default):
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    initial_sleep_hours = safe_float(getattr(existing_user, "sleep_hours", 8.0), 8.0)
+    initial_sleep_hours = min(12.0, max(5.0, initial_sleep_hours))
+    initial_wake_time = (getattr(existing_user, "wake_time", None) or "07:00").strip() or "07:00"
     
     # Store user's answers
     onboarding_data = {
-        "sleep_hours": 8.0,
-        "wake_time": "07:00",  # Default 7:00 AM
-        "has_work": False,
-        "work_hours_per_week": 0.0,
-        "work_days_per_week": 0,
+        "sleep_hours": initial_sleep_hours,
+        "wake_time": initial_wake_time,
+        "has_work": bool(getattr(existing_user, "has_work", False)),
+        "work_hours_per_week": safe_float(getattr(existing_user, "work_hours_per_week", 0.0), 0.0),
+        "work_days_per_week": int(getattr(existing_user, "work_days_per_week", 0) or 0),
     }
     
     current_step = ft.Container(
@@ -64,7 +77,7 @@ def OnboardingPage(page: ft.Page, on_complete, session: dict):
     
     # ==================== STEP 1: Sleep Hours ====================
     def build_step_1():
-        selected_hours = ft.Text("8 hours", size=20, weight=ft.FontWeight.BOLD)
+        selected_hours = ft.Text(f"{int(round(onboarding_data['sleep_hours']))} hours", size=20, weight=ft.FontWeight.BOLD)
         
         def on_slider_change(e):
             hours = int(e.control.value)
@@ -75,7 +88,13 @@ def OnboardingPage(page: ft.Page, on_complete, session: dict):
         return ft.Container(
             content=ft.Column(
                 controls=[
-                    ft.Text("Let's set up your time budget", size=28, weight=ft.FontWeight.BOLD, color=title_color, text_align=ft.TextAlign.CENTER),
+                    ft.Text(
+                        "Update your time budget" if edit_mode else "Let's set up your time budget",
+                        size=28,
+                        weight=ft.FontWeight.BOLD,
+                        color=title_color,
+                        text_align=ft.TextAlign.CENTER,
+                    ),
                     ft.Container(height=10),
                     ft.Text("How many hours do you sleep per night?", size=16, text_align=ft.TextAlign.CENTER),
                     ft.Container(height=30),
@@ -83,7 +102,7 @@ def OnboardingPage(page: ft.Page, on_complete, session: dict):
                     ft.Slider(
                         min=5,
                         max=12,
-                        value=8,
+                        value=onboarding_data["sleep_hours"],
                         divisions=7,
                         label="{value} hrs",
                         on_change=on_slider_change,
@@ -114,7 +133,7 @@ def OnboardingPage(page: ft.Page, on_complete, session: dict):
     def build_step_2():
         wake_hour = ft.Text("7:00 AM", size=20, weight=ft.FontWeight.BOLD)
         wake_time_field = ft.TextField(
-            value="07:00",
+            value=onboarding_data["wake_time"],
             label="Wake Time",
             read_only=True,
             width=min(260, form_width - 30),
@@ -159,7 +178,11 @@ def OnboardingPage(page: ft.Page, on_complete, session: dict):
             )
             page.open(picker)
 
-        apply_wake_time(7, 0)
+        try:
+            default_time = datetime.strptime(onboarding_data["wake_time"], "%H:%M")
+            apply_wake_time(default_time.hour, default_time.minute)
+        except ValueError:
+            apply_wake_time(7, 0)
         
         return ft.Container(
             content=ft.Column(
@@ -503,9 +526,9 @@ def OnboardingPage(page: ft.Page, on_complete, session: dict):
         # Calculate budget
         budget = manager.calculate_time_budget(
             sleep_hours=onboarding_data["sleep_hours"],
-            has_work=False,
-            work_hours_per_week=0,
-            work_days_per_week=0,
+            has_work=onboarding_data["has_work"],
+            work_hours_per_week=onboarding_data["work_hours_per_week"],
+            work_days_per_week=onboarding_data["work_days_per_week"],
             wake_time=onboarding_data["wake_time"],
         )
         
@@ -513,8 +536,10 @@ def OnboardingPage(page: ft.Page, on_complete, session: dict):
         error_msg = ft.Text("", color=ft.Colors.RED_600, size=14)
 
         def finish_onboarding(e):
-            # Get user_id from session
+            # Get user id from session, with fallback to logged-in user object.
             user_id = session.get("user_id")
+            if not user_id and session.get("user"):
+                user_id = session["user"].id
             
             if not user_id:
                 error_msg.value = "Error: No user logged in"
@@ -529,15 +554,23 @@ def OnboardingPage(page: ft.Page, on_complete, session: dict):
                 user_id=user_id,
                 sleep_hours=onboarding_data["sleep_hours"],
                 wake_time=onboarding_data["wake_time"],
-                has_work=False,
-                work_hours_per_week=0,
-                work_days_per_week=0,
+                has_work=onboarding_data["has_work"],
+                work_hours_per_week=onboarding_data["work_hours_per_week"],
+                work_days_per_week=onboarding_data["work_days_per_week"],
                 study_goal_hours_per_day=study_goal
             )
             
             if success:
                 # Mark as completed in session
                 session["onboarding_completed"] = True
+                if session.get("user"):
+                    session["user"].sleep_hours = onboarding_data["sleep_hours"]
+                    session["user"].wake_time = onboarding_data["wake_time"]
+                    session["user"].has_work = 1 if onboarding_data["has_work"] else 0
+                    session["user"].work_hours_per_week = onboarding_data["work_hours_per_week"]
+                    session["user"].work_days_per_week = onboarding_data["work_days_per_week"]
+                if edit_mode:
+                    session["settings_flash_success"] = "Onboarding details updated successfully."
                 # Call the callback to redirect
                 on_complete(onboarding_data, budget)
             else:
@@ -606,7 +639,7 @@ def OnboardingPage(page: ft.Page, on_complete, session: dict):
                             ),
                             ft.Container(width=20),
                             ft.ElevatedButton(
-                                "Start Using TYMATE",
+                                "Save Changes" if edit_mode else "Start Using TYMATE",
                                 on_click=finish_onboarding,
                                 style=ft.ButtonStyle(
                                     bgcolor=accent_color,

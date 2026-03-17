@@ -1,6 +1,8 @@
 import flet as ft
 import os
 import shutil
+import time
+import threading
 from pathlib import Path
 from state.auth_manager import AuthManager
 
@@ -36,6 +38,44 @@ def SettingsPage(page: ft.Page, session: dict = None):
     profile_message = ft.Text("", size=12)
     password_message = ft.Text("", size=12)
     photo_message = ft.Text("", size=12)
+
+    status_message = ft.Text(
+        "",
+        size=14,
+        weight=ft.FontWeight.W_500,
+        visible=False,
+    )
+    message_hide_seconds = 6
+    message_sequence = {"value": 0}
+
+    def show_message(text: str, msg_type: str = "info"):
+        color_map = {
+            "success": ft.Colors.GREEN_700,
+            "error": ft.Colors.RED_700,
+            "warning": ft.Colors.ORANGE_700,
+            "info": ft.Colors.BLUE_700,
+        }
+        message_sequence["value"] += 1
+        current_seq = message_sequence["value"]
+        status_message.value = text
+        status_message.color = color_map.get(msg_type, ft.Colors.BLUE_700)
+        status_message.visible = True
+        try:
+            status_message.update()
+        except (AssertionError, AttributeError):
+            pass
+
+        def hide_message(seq):
+            time.sleep(message_hide_seconds)
+            try:
+                if message_sequence["value"] != seq:
+                    return
+                status_message.visible = False
+                status_message.update()
+            except (AssertionError, AttributeError):
+                pass
+
+        threading.Thread(target=hide_message, args=(current_seq,), daemon=True).start()
     
     # Store original values for change detection
     original_values = {
@@ -340,6 +380,18 @@ def SettingsPage(page: ft.Page, session: dict = None):
         # Navigate to login page
         page.route = "/login"
         page.update()
+
+    def go_to(route: str):
+        page.route = route
+        route_change = session.get("route_change") if session else None
+        if callable(route_change):
+            route_change(route)
+
+    def open_onboarding_editor(e):
+        if session is not None:
+            session["onboarding_edit_mode"] = True
+            session["onboarding_return_route"] = "/settings"
+        go_to("/onboarding")
     
     # File picker for profile photo
     file_picker = ft.FilePicker(on_result=on_file_picked)
@@ -485,6 +537,79 @@ def SettingsPage(page: ft.Page, session: dict = None):
         alignment=ft.alignment.center,
     )
 
+    current_sleep_hours = getattr(user, "sleep_hours", 8.0) or 8.0
+    current_wake_time = getattr(user, "wake_time", "07:00") or "07:00"
+
+    onboarding_preview = ft.Container(
+        content=ft.Column(
+            controls=[
+                ft.Text("Current setup", size=12, color=accent_color, weight=ft.FontWeight.W_600),
+                ft.Row(
+                    controls=[
+                        ft.Text("Sleep", size=12, color=title_color),
+                        ft.Container(expand=True),
+                        ft.Text(f"{current_sleep_hours:g} hours", size=12, color=title_color, weight=ft.FontWeight.W_500),
+                    ],
+                ),
+                ft.Row(
+                    controls=[
+                        ft.Text("Wake time", size=12, color=title_color),
+                        ft.Container(expand=True),
+                        ft.Text(str(current_wake_time), size=12, color=title_color, weight=ft.FontWeight.W_500),
+                    ],
+                ),
+            ],
+            spacing=8,
+        ),
+        width=field_width,
+        padding=ft.padding.symmetric(horizontal=12, vertical=10),
+        bgcolor=soft_panel_bg,
+        border=ft.border.all(1, border_color),
+        border_radius=10,
+    )
+
+    onboarding_details_card = ft.Container(
+        content=ft.Column(
+            controls=[
+                ft.Text("Onboarding Details", size=18, weight=ft.FontWeight.W_500, color=title_color),
+                ft.Container(width=field_width, height=1, bgcolor=border_color),
+                ft.Text(
+                    "Need to revise your onboarding inputs? Reopen the onboarding flow with your current values prefilled.",
+                    size=12,
+                    color=accent_color,
+                    text_align=ft.TextAlign.CENTER,
+                ),
+                onboarding_preview,
+                ft.ElevatedButton(
+                    "Update Onboarding Details",
+                    bgcolor=accent_color,
+                    color=ft.Colors.WHITE,
+                    on_click=open_onboarding_editor,
+                    style=ft.ButtonStyle(
+                        overlay_color=ft.Colors.with_opacity(0.08, ft.Colors.BLACK),
+                        side=ft.BorderSide(1, border_color),
+                    ),
+                ),
+            ],
+            spacing=12,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+        ),
+        bgcolor=panel_bg,
+        border=ft.border.all(1.5, border_color),
+        border_radius=12,
+        padding=24,
+        width=card_width,
+        shadow=drop_shadow,
+        alignment=ft.alignment.center,
+    )
+
+    settings_flash_message = ""
+    if session and session.get("settings_flash_success"):
+        settings_flash_message = session.pop("settings_flash_success")
+
+    if settings_flash_message:
+        show_message(settings_flash_message, "success")
+
     return ft.Container(
         content=ft.Column(
             controls=[
@@ -495,11 +620,13 @@ def SettingsPage(page: ft.Page, session: dict = None):
                     ],
                     spacing=8,
                 ),
+                status_message,
 
                 identity_block,
 
                 profile_card,
                 password_card,
+                onboarding_details_card,
 
                 ft.Container(width=card_width, height=1, bgcolor=border_color),
 

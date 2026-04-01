@@ -22,6 +22,13 @@ def AdminPage(page: ft.Page, session: dict):
         )
     
     auth = AuthManager()
+
+    def current_admin_id() -> int:
+        """Resolve current admin user ID from session."""
+        if session.get("user_id"):
+            return session.get("user_id")
+        user = session.get("user")
+        return user.id if user else None
     
     # State
     status_message = ft.Text("", size=13, color=ft.Colors.GREEN_700)
@@ -129,6 +136,14 @@ def AdminPage(page: ft.Page, session: dict):
                                                 disabled=(not user["is_locked"]),
                                             ),
                                             ft.IconButton(
+                                                icon=ft.Icons.KEY,
+                                                icon_color=ft.Colors.BLUE_700,
+                                                icon_size=20,
+                                                tooltip="Reset Password",
+                                                on_click=lambda e, uid=user["id"], uname=user["username"]: show_reset_password_dialog(uid, uname),
+                                                disabled=(user["id"] == current_admin_id()),
+                                            ),
+                                            ft.IconButton(
                                                 icon=ft.Icons.DELETE_OUTLINE,
                                                 icon_color=ft.Colors.RED_700,
                                                 icon_size=20,
@@ -194,11 +209,104 @@ def AdminPage(page: ft.Page, session: dict):
     
     def unlock_user(user_id):
         """Unlock a locked user account"""
-        success, message = auth.unlock_user(user_id, session.get("user_id"))
+        success, message = auth.unlock_user(user_id, current_admin_id())
         
         status_message.value = message
         status_message.color = ft.Colors.GREEN_700 if success else ft.Colors.RED_700
         refresh_user_list()
+
+    def show_reset_password_dialog(user_id, username):
+        """Show dialog for admin password reset."""
+        new_password_field = ft.TextField(
+            label="New Password",
+            password=True,
+            can_reveal_password=True,
+            width=320,
+            border=ft.InputBorder.UNDERLINE,
+            text_size=14,
+        )
+        confirm_password_field = ft.TextField(
+            label="Confirm New Password",
+            password=True,
+            can_reveal_password=True,
+            width=320,
+            border=ft.InputBorder.UNDERLINE,
+            text_size=14,
+        )
+        error_text = ft.Text("", color=ft.Colors.RED_700, size=12)
+
+        def reset_confirmed(e):
+            error_text.value = ""
+
+            new_password = (new_password_field.value or "").strip()
+            confirm_password = (confirm_password_field.value or "").strip()
+
+            if not new_password:
+                error_text.value = "New password is required"
+                page.update()
+                return
+
+            if new_password != confirm_password:
+                error_text.value = "Passwords do not match"
+                page.update()
+                return
+
+            success, message = auth.admin_reset_user_password(
+                admin_id=current_admin_id(),
+                target_user_id=user_id,
+                new_password=new_password,
+            )
+
+            if success:
+                dialog.open = False
+                page.update()
+
+                status_message.value = message
+                status_message.color = ft.Colors.GREEN_700
+                refresh_user_list()
+            else:
+                error_text.value = message
+                page.update()
+
+        def cancel_reset(e):
+            dialog.open = False
+            page.update()
+
+        dialog = ft.AlertDialog(
+            title=ft.Text("Reset User Password", weight=ft.FontWeight.W_500, size=18),
+            content=ft.Column(
+                controls=[
+                    ft.Text(f"Set a new password for '{username}'", size=13, color=ft.Colors.GREY_700),
+                    ft.Container(height=8),
+                    new_password_field,
+                    ft.Container(height=8),
+                    confirm_password_field,
+                    ft.Container(height=12),
+                    error_text,
+                ],
+                tight=True,
+                spacing=0,
+                width=320,
+            ),
+            actions=[
+                ft.TextButton(
+                    "Cancel",
+                    on_click=cancel_reset,
+                    style=ft.ButtonStyle(color=ft.Colors.GREY_700),
+                ),
+                ft.OutlinedButton(
+                    "Reset Password",
+                    style=ft.ButtonStyle(
+                        color=ft.Colors.BLUE_700,
+                        side=ft.BorderSide(1, ft.Colors.BLUE_700),
+                    ),
+                    on_click=reset_confirmed,
+                ),
+            ],
+        )
+
+        page.open(dialog)
+        page.update()
     
     def confirm_delete_user(user_id, username):
         """Show confirmation dialog before deleting user"""

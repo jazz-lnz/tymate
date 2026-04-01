@@ -506,6 +506,68 @@ class AuthManager:
         except Exception as e:
             return False, f"Unlock failed: {str(e)}"
 
+    def admin_reset_user_password(
+        self,
+        admin_id: int,
+        target_user_id: int,
+        new_password: str,
+    ) -> tuple[bool, str]:
+        """
+        Reset another user's password (admin only).
+
+        Args:
+            admin_id: ID of admin performing the reset
+            target_user_id: ID of user whose password will be reset
+            new_password: New plaintext password
+
+        Returns:
+            Tuple of (success: bool, message: str)
+        """
+        try:
+            admin_data = self.db.get_by_id("users", admin_id)
+            if not admin_data:
+                return False, "Admin user not found"
+
+            if admin_data.get("role") != "admin":
+                return False, "Only admins can reset user passwords"
+
+            user_data = self.db.get_by_id("users", target_user_id)
+            if not user_data:
+                return False, "Target user not found"
+
+            is_valid, msg = User.validate_password_complexity(new_password)
+            if not is_valid:
+                return False, msg
+
+            target_user = User.from_dict(user_data)
+            if target_user.verify_password(new_password):
+                return False, "New password cannot be the same as current password"
+
+            self.db.update(
+                "users",
+                {
+                    "password_hash": User.hash_password(new_password),
+                    "failed_login_attempts": 0,
+                    "is_locked": 0,
+                    "locked_at": None,
+                    "updated_at": datetime.now().isoformat(),
+                },
+                "id = ?",
+                (target_user_id,),
+            )
+
+            self._log_audit(
+                admin_id,
+                "ADMIN_PASSWORD_RESET",
+                "users",
+                target_user_id,
+                new_value=f"Password reset by admin for user: {user_data['username']}",
+            )
+
+            return True, f"Password reset successfully for '{user_data['username']}'"
+        except Exception as e:
+            return False, f"Password reset failed: {str(e)}"
+
 
 # Example usage
 if __name__ == "__main__":

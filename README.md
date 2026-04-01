@@ -54,6 +54,7 @@ TYMATE adapts to your **wake time and bedtime**, showing realistic remaining hou
 | Settings & Customization | ✅ Complete | P1 |
 | Password Hashing (bcrypt) | ✅ Complete | P0 |
 | Session Management | ✅ Complete | P0 |
+| Admin User Management (disable/unlock/delete/reset password) | ✅ Complete | P1 |
 | Profile Photo Upload | ✅ Complete | P2 |
 | Soft Delete (Data Retention) | ✅ Complete | P1 |
 | Task Filtering & Sorting | ✅ Complete | P1 |
@@ -69,8 +70,7 @@ TYMATE adapts to your **wake time and bedtime**, showing realistic remaining hou
 | Real-time Cloud Sync | Beyond scope; local-first design | P3 |
 | Advanced ML Predictions | Would require significant data history | P3 |
 | Offline Mode | Desktop/web covers scope | P3 |
-| Manual and In-app Task Hour Logging (Log Hours Page) | Insufficient time for lone developer | P3 |
-| User Roles (premium, regular) | Insufficient time for lone developer | P3 |
+| Dedicated Log Hours page route + UX polish | Time logging exists via Time It; standalone page is still placeholder-level | P3 |
 
 
 ---
@@ -83,16 +83,16 @@ TYMATE adapts to your **wake time and bedtime**, showing realistic remaining hou
 │                    PRESENTATION LAYER                       │
 │                   (Flet UI Components)                      │
 ├────────────┬──────────────┬──────────────┬──────────────────┤
-│  Dashboard │    Tasks     │  Analytics   │    Settings      │
+│  Dashboard │    Tasks     │   Time It    │    Analytics     │
 │   Page     │    Page      │    Page      │      Page        │
 └────────────┴──────────────┴──────────────┴──────────────────┘
                               │
 ┌─────────────────────────────────────────────────────────────┐
 │                    STATE MANAGEMENT LAYER                   │
-├────────────┬──────────────┬──────────────┐                  │
-│  AuthMgr   │   TaskMgr    │  OnboardMgr  │                  │
-│ (sessions) │ (CRUD ops)   │   (setup)    │                  │
-└────────────┴──────────────┴──────────────┘──────────────────┘
+├────────────┬──────────────┬──────────────┬──────────────────┤
+│  AuthMgr   │   TaskMgr    │  OnboardMgr  │   SessionMgr     │
+│ (sessions) │ (CRUD ops)   │   (setup)    │ (time logs)      │
+└────────────┴──────────────┴──────────────┴──────────────────┘
                               │
 ┌─────────────────────────────────────────────────────────────┐
 │                  BUSINESS LOGIC LAYER                       │
@@ -106,9 +106,9 @@ TYMATE adapts to your **wake time and bedtime**, showing realistic remaining hou
 │                    DATA STORAGE LAYER                       │
 ├────────────────────────────────────────────-────────────────┤
 │            SQLite Database (data/tymate.db)                 │
-│                    - users table                            │
-│                    - tasks table                            │
-│                    - audit_logs table                       │
+│                    - users / roles / sessions               │
+│                    - tasks / task_sessions / task_events    │
+│                    - audit_logs / time_logs / settings      │
 └─────────────────────────────────────────────────-───────────┘
 ```
 
@@ -126,12 +126,12 @@ tymate/
 ├── README.md              # Documentation
 ├── components/            # Reusable UI components
 ├── data/                  # Database storage
-├── models/                # Data models (User, Task)
+├── models/                # Data models (User, Task, Session)
 ├── services/              # Business logic (Analytics)
-├── state/                 # State management (Auth, Task, Onboarding)
+├── state/                 # State management (Auth, Task, Session, Onboarding)
 ├── storage/               # Database layer (SQLite)
 ├── tests/                 # Test suite
-└── views/                 # UI pages (Dashboard, Tasks, Analytics, Settings)
+└── views/                 # UI pages (Dashboard, Tasks, Time It, Analytics, Settings, Admin)
 ```
 
 ---
@@ -155,10 +155,21 @@ TASKS (id, user_id, title, ...)    │
   ├─ user_id (FOREIGN KEY) ────────┘
   ├─ title, source, category
   ├─ date_given, date_due
-  ├─ estimated_time, actual_time
-  ├─ status (not_started, in_progress, completed)
-  ├─ completed_at (timestamp)
+  ├─ estimated_time, status, completed_at
+  ├─ is_recurring, recurrence_type, recurrence_interval, recurrence_until
   └─ is_deleted (soft delete flag)
+
+TASK_SESSIONS (id, task_id, user_id, ...)
+  ├─ id (PRIMARY KEY)
+  ├─ task_id (FOREIGN KEY) ──────── references TASKS
+  ├─ duration_minutes, logged_at, notes
+  └─ is_deleted (soft delete flag)
+
+TASK_EVENTS (id, task_id, user_id, ...)
+  ├─ id (PRIMARY KEY)
+  ├─ task_id (FOREIGN KEY) ──────── references TASKS
+  ├─ event_type, message, metadata
+  └─ created_at (timestamp)
 
 AUDIT_LOGS (id, user_id, action, ...)
   ├─ id (PRIMARY KEY)
@@ -255,7 +266,7 @@ flet run main.py --web
 - **Mobile**: Safari (iOS), Chrome Mobile (Android)
 - **Development**: Can run as standalone desktop app with PyInstaller
 
-For detailed usage instructions, see [USER_MANUAL.md](USER_MANUAL.md).
+For detailed usage instructions, see [docs/USER_MANUAL.md](docs/USER_MANUAL.md).
 
 ---
 
@@ -271,6 +282,10 @@ For detailed usage instructions, see [USER_MANUAL.md](USER_MANUAL.md).
    - test_auth.py: User login & registration flow
    - test_onboarding.py: Onboarding workflow
    - test_integration_auth_flow.py: End-to-end auth scenarios
+   - test_schedule_manager.py: Schedule logic and time calculations
+   - test_realtime_budget_edge_cases.py: Real-time budget edge cases
+   - test_budget_verdict.py: Budget verdict and threshold behavior
+   - test_edge_case_fix_validation.py: Regression coverage for onboarding/time edge cases
 
 ✅ Manual Testing
    - [Manual Test Checklist](docs/manual_test_checklist.md): UI feature verification
@@ -288,6 +303,13 @@ python -m pytest tests/test_database.py
 python -m pytest tests/test_onboarding.py
 python -m pytest tests/test_unit_user_model.py
 python -m pytest tests/test_integration_auth_flow.py
+python -m pytest tests/test_schedule_manager.py
+python -m pytest tests/test_realtime_budget_edge_cases.py
+python -m pytest tests/test_budget_verdict.py
+python -m pytest tests/test_edge_case_fix_validation.py
+
+# Run all committed tests
+python -m pytest tests/
 
 # Generate sample database
 python tests/generate_sample_db.py
@@ -302,11 +324,9 @@ Sample database includes:
 - Audit log entries for system actions
 
 ### Coverage Notes
-- Core authentication flow: 100%
-- Database operations: 95%
-- Password hashing: 100%
-- UI components: Manual testing (Flet limitation)
-- Analytics engine: 85% (edge cases)
+- Includes unit, integration, and targeted edge-case regression tests
+- UI behavior is still primarily validated via manual test checklist (Flet limitation)
+- Time-budget edge cases are explicitly covered by dedicated regression tests
 
 ---
 
@@ -337,7 +357,7 @@ This project was independently developed as part of academic coursework. All asp
 | Data loss (no backup) | Low | Medium | Soft deletes retain historical data |
 | Session timeout edge cases | Low | Low | 30-min configurable timeout |
 | Profile photo upload errors | Medium | Low | 5MB limit + format validation |
-| Time calculation errors | **Medium** | **Medium** | **Known issue**: Incorrect calculations with edge cases (e.g., 5 hours sleep, 5-11am wake time). Documented as future fix. |
+| Time calculation regressions | Low | Medium | Guarded by dedicated edge-case regression tests and schedule-manager tests |
 
 **NOTE**: Check out **[Security Report](docs/SECURITY_REPORT.md)** for a more extensive discussion regarding app security.
 
@@ -345,8 +365,8 @@ This project was independently developed as part of academic coursework. All asp
 - ☐ SQLCipher for database encryption
 - ☐ Cloud backup (Google Drive, Dropbox integration)
 - ☐ Real-time notifications (when overdue)
-- ☐ Recurring tasks
-- ☐ Manual and In-App Time Logging for Tasks
+- ☐ Improve recurring task UX (rule editor + occurrence preview)
+- ☐ Dedicated Log Hours page flow (Time It is currently the primary logging path)
 - ☐ Work Time and Schedule considerations
 - ☐ Collaborative task sharing
 - ☐ Mobile app (iOS/Android native)
@@ -383,9 +403,9 @@ Developed for the courses:
 
 - CCCS 106 - Application Development and Emerging Technologies
 - CS 319 - Information Assurance and Security
-- CS 3110 - Software Engineering 1
+- CS 3110 - Software Engineering 1 and 2
 
-December 2025
+April 2026
 
 ---
 

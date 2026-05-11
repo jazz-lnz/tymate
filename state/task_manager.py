@@ -26,7 +26,7 @@ class TaskManager:
     ):
         """Write a task lifecycle event entry."""
         try:
-            self.db.insert(
+            event_id = self.db.insert(
                 "task_events",
                 {
                     "user_id": user_id,
@@ -37,6 +37,25 @@ class TaskManager:
                     "created_at": created_at or datetime.now().isoformat(),
                 },
             )
+            try:
+                sync_service.enqueue(
+                    user_id,
+                    "INSERT",
+                    "task_events",
+                    event_id,
+                    {
+                        "id": event_id,
+                        "user_id": user_id,
+                        "task_id": task_id,
+                        "event_type": event_type,
+                        "message": message,
+                        "metadata": metadata or {},
+                        "created_at": created_at or datetime.now().isoformat(),
+                    },
+                )
+                sync_service.push(user_id)
+            except Exception:
+                pass
         except Exception:
             # Event logs should not block the primary task operation.
             pass

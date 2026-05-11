@@ -38,6 +38,7 @@ def SettingsPage(page: ft.Page, session: dict = None):
     profile_message = ft.Text("", size=12)
     password_message = ft.Text("", size=12)
     photo_message = ft.Text("", size=12)
+    pending_profile_photo = {"path": None, "filename": None}
 
     status_message = ft.Text(
         "",
@@ -290,14 +291,27 @@ def SettingsPage(page: ft.Page, session: dict = None):
                 photo_message.color = ft.Colors.RED_400
                 page.update()
                 return
-        else:
-            # Desktop/local path flow
-            if not file_path:
-                photo_message.value = "Upload failed: no file provided"
+        elif not file_path:
+            # Browser/web flow: ask Flet to upload to the configured upload_dir.
+            file_ext = Path(original_name or "upload").suffix or ".png"
+            new_filename = f"user_{user.id}{file_ext}"
+            pending_profile_photo["path"] = f"data/profile_photos/{new_filename}"
+            pending_profile_photo["filename"] = new_filename
+            try:
+                upload_url = page.get_upload_url(new_filename, 600)
+                file_picker.upload([
+                    ft.FilePickerUploadFile(name=new_filename, upload_url=upload_url)
+                ])
+                photo_message.value = "Uploading photo..."
+                photo_message.color = ft.Colors.BLUE_700
+                page.update()
+            except Exception as ex:
+                photo_message.value = f"Upload failed: {str(ex)}"
                 photo_message.color = ft.Colors.RED_400
                 page.update()
-                return
-
+            return
+        else:
+            # Desktop/local path flow
             # Validate the image
             is_valid, error_msg = validate_image_file(file_path)
             if not is_valid:
@@ -345,6 +359,47 @@ def SettingsPage(page: ft.Page, session: dict = None):
             photo_message.color = ft.Colors.RED_400
 
         page.update()
+
+    def on_file_upload(e: ft.FilePickerUploadEvent):
+        if e.error:
+            photo_message.value = f"Upload failed: {e.error}"
+            photo_message.color = ft.Colors.RED_400
+            page.update()
+            return
+
+        if e.progress is not None and e.progress < 1:
+            photo_message.value = f"Uploading photo... {int(e.progress * 100)}%"
+            photo_message.color = ft.Colors.BLUE_700
+            page.update()
+            return
+
+        if pending_profile_photo["path"]:
+            try:
+                success, msg = auth.update_user_profile(
+                    user.id,
+                    profile_photo=pending_profile_photo["path"]
+                )
+                if success:
+                    user.profile_photo = pending_profile_photo["path"]
+                    avatar_placeholder.content = ft.Image(
+                        src=pending_profile_photo["path"],
+                        width=96,
+                        height=96,
+                        fit=ft.ImageFit.COVER,
+                        border_radius=48,
+                    )
+                    photo_message.value = "Profile picture updated!"
+                    photo_message.color = ft.Colors.GREEN_600
+                else:
+                    photo_message.value = f"Failed to update: {msg}"
+                    photo_message.color = ft.Colors.RED_400
+            except Exception as ex:
+                photo_message.value = f"Upload failed: {str(ex)}"
+                photo_message.color = ft.Colors.RED_400
+            finally:
+                pending_profile_photo["path"] = None
+                pending_profile_photo["filename"] = None
+                page.update()
     
     def remove_profile_photo(e):
         """Remove profile photo"""
@@ -423,7 +478,7 @@ def SettingsPage(page: ft.Page, session: dict = None):
         go_to("/onboarding")
     
     # File picker for profile photo
-    file_picker = ft.FilePicker(on_result=on_file_picked)
+    file_picker = ft.FilePicker(on_result=on_file_picked, on_upload=on_file_upload)
     page.overlay.append(file_picker)
     
     # Avatar placeholder with profile photo if exists

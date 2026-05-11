@@ -204,9 +204,10 @@ if __name__ == "__main__":
             os.environ["TZ"] = app_timezone
             if hasattr(time, "tzset"):
                 time.tzset()
+        os.makedirs("data/profile_photos", exist_ok=True)
     
     # Web mode: set port and host for network accessibility; desktop mode: ignored
-    app_kwargs = {"target": main, "view": app_view, "assets_dir": "assets"}
+    app_kwargs = {"target": main, "view": app_view, "assets_dir": "assets", "upload_dir": "data/profile_photos"}
     if view_mode == "web":
         web_port = int(os.getenv("FLET_WEB_PORT", "8080"))
         app_kwargs["port"] = web_port

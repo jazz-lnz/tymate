@@ -23,7 +23,7 @@ class SessionManager:
     ):
         """Write task-related event entry from session operations."""
         try:
-            self.db.insert(
+            event_id = self.db.insert(
                 "task_events",
                 {
                     "user_id": user_id,
@@ -34,6 +34,25 @@ class SessionManager:
                     "created_at": datetime.now().isoformat(),
                 },
             )
+            try:
+                sync_service.enqueue(
+                    user_id,
+                    "INSERT",
+                    "task_events",
+                    event_id,
+                    {
+                        "id": event_id,
+                        "user_id": user_id,
+                        "task_id": task_id,
+                        "event_type": event_type,
+                        "message": message,
+                        "metadata": metadata or {},
+                        "created_at": datetime.now().isoformat(),
+                    },
+                )
+                sync_service.push(user_id)
+            except Exception:
+                pass
         except Exception:
             pass
 

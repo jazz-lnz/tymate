@@ -489,6 +489,12 @@ class AuthManager:
         
         self._log_audit(user_id, "PASSWORD_CHANGED", "users", user_id,
                        new_value="Password updated")
+
+        # Best-effort server password change so the new password works cross-device.
+        try:
+            sync_service.change_password_on_server(old_password, new_password)
+        except Exception:
+            pass
         
         return True, "Password changed successfully"
     

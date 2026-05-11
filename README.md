@@ -228,17 +228,21 @@ AUDIT_LOGS (id, user_id, action, ...)
 
 ### 1. Create and activate a virtual environment
 ```bash
-python -m venv .venv
-
 # Mac/Linux
+python3 -m venv .venv
 source .venv/bin/activate
 
 # Windows
+python -m venv .venv
 .venv\Scripts\activate
 ```
 
 ### 2. Install dependencies
 ```bash
+# Mac/Linux
+pip3 install -r requirements.txt
+
+# Windows
 pip install -r requirements.txt
 ```
 

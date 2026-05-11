@@ -87,6 +87,26 @@ def login_on_server(username: str, password: str) -> tuple[bool, str, dict]:
         return False, str(e), {}
 
 
+def change_password_on_server(old_password: str, new_password: str) -> tuple[bool, str]:
+    """Change the authenticated user's password on the sync server."""
+    if not is_authenticated():
+        return False, "Not authenticated or sync not configured"
+    try:
+        resp = requests.post(
+            f"{SYNC_SERVER_URL}/auth/change-password",
+            json={"old_password": old_password, "new_password": new_password},
+            headers=_headers(),
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            return True, "Password updated on server"
+        return False, resp.json().get("detail", "Password update failed")
+    except requests.exceptions.ConnectionError:
+        return False, "Could not reach sync server"
+    except Exception as e:
+        return False, str(e)
+
+
 # ==================== Push ====================
 
 def push(user_id: int) -> tuple[bool, str]:
@@ -179,13 +199,23 @@ def pull(user_id: int) -> tuple[bool, str]:
         _merge_tasks(db, data.get("tasks", []), user_id)
         _merge_sessions(db, data.get("task_sessions", []), user_id)
         _merge_events(db, data.get("task_events", []), user_id)
+        _merge_schedules(db, data.get("class_schedule", []), user_id)
+        _merge_schedules(db, data.get("work_schedule", []), user_id)
         _merge_users(db, data.get("users", []), user_id)
         _merge_settings(db, data.get("settings", []), user_id)
 
         synced_at = data.get("synced_at", datetime.now().isoformat())
         _save_last_synced_at(user_id, synced_at)
 
-        total = len(data["tasks"]) + len(data["task_sessions"]) + len(data["task_events"])
+        total = (
+            len(data.get("users", []))
+            + len(data.get("tasks", []))
+            + len(data.get("task_sessions", []))
+            + len(data.get("task_events", []))
+            + len(data.get("settings", []))
+            + len(data.get("class_schedule", []))
+            + len(data.get("work_schedule", []))
+        )
         return True, f"Pulled {total} records from server"
 
     except requests.exceptions.ConnectionError:
@@ -354,6 +384,64 @@ def _merge_settings(db, settings: list, user_id: int):
         db.commit()
     except Exception:
         pass
+
+
+def _merge_schedules(db, schedules: list, user_id: int):
+    """Merge class_schedule or work_schedule records into local DB.
+    Expects schedule records to include a client_id (original local id) when available.
+    """
+    for s in schedules:
+        try:
+            client_id = s.get("client_id") or s.get("id")
+            if not client_id:
+                continue
+
+            # Determine table columns for class vs work schedule
+            table = "class_schedule" if s.get("day_of_week") is not None else "work_schedule"
+
+            if table == "class_schedule":
+                existing = db.fetch_one("SELECT id, updated_at FROM class_schedule WHERE id = ? AND user_id = ?", (client_id, user_id))
+                if existing:
+                    # Overwrite only if server newer
+                    if s.get("updated_at", "") >= existing.get("updated_at", ""):
+                        row = {k: v for k, v in s.items() if k not in ("id", "client_id")}
+                        row["user_id"] = user_id
+                        db.update("class_schedule", row, "id = ? AND user_id = ?", (client_id, user_id))
+                else:
+                    row = {k: v for k, v in s.items() if k != "client_id"}
+                    row["id"] = client_id
+                    row["user_id"] = user_id
+                    try:
+                        db.execute_query(
+                            f"INSERT OR IGNORE INTO class_schedule ({','.join(row.keys())}) VALUES ({','.join(['?']*len(row))})",
+                            tuple(row.values())
+                        )
+                        db.commit()
+                    except Exception:
+                        pass
+
+            else:
+                # work_schedule
+                existing = db.fetch_one("SELECT id, updated_at FROM work_schedule WHERE id = ? AND user_id = ?", (client_id, user_id))
+                if existing:
+                    if s.get("updated_at", "") >= existing.get("updated_at", ""):
+                        row = {k: v for k, v in s.items() if k not in ("id", "client_id")}
+                        row["user_id"] = user_id
+                        db.update("work_schedule", row, "id = ? AND user_id = ?", (client_id, user_id))
+                else:
+                    row = {k: v for k, v in s.items() if k != "client_id"}
+                    row["id"] = client_id
+                    row["user_id"] = user_id
+                    try:
+                        db.execute_query(
+                            f"INSERT OR IGNORE INTO work_schedule ({','.join(row.keys())}) VALUES ({','.join(['?']*len(row))})",
+                            tuple(row.values())
+                        )
+                        db.commit()
+                    except Exception:
+                        pass
+        except Exception:
+            pass
 
 
 # ==================== Persistence Helpers ====================

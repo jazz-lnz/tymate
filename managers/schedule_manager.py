@@ -2,6 +2,8 @@ from datetime import date as date_type, datetime
 from typing import List, Optional
 
 from storage.sqlite import get_database
+from datetime import datetime
+from services import sync_service
 
 
 class ScheduleManager:
@@ -51,6 +53,15 @@ class ScheduleManager:
 
         try:
             block_id = self.db.insert("class_schedule", data)
+            # Enqueue schedule insert for sync (non-blocking)
+            try:
+                sync_service.enqueue(user_id, "INSERT", "class_schedule", block_id, {**data, "id": block_id})
+                try:
+                    sync_service.push(user_id)
+                except Exception:
+                    pass
+            except Exception:
+                pass
             return True, "Class block added successfully", block_id
         except Exception as exc:
             return False, f"Failed to add class block: {str(exc)}", None
@@ -70,9 +81,24 @@ class ScheduleManager:
     def delete_class_block(self, block_id: int) -> tuple[bool, str]:
         """Delete a class block by ID."""
         try:
+            # Fetch record to determine user_id for syncing
+            record = self.db.fetch_one("SELECT * FROM class_schedule WHERE id = ?", (block_id,))
             deleted = self.db.delete("class_schedule", "id = ?", (block_id,))
             if deleted == 0:
                 return False, "Class block not found"
+            # Enqueue schedule delete for sync (non-blocking)
+            try:
+                now = datetime.now().isoformat()
+                uid = record["user_id"] if record and record.get("user_id") else None
+                if uid:
+                    sync_service.enqueue(uid, "DELETE", "class_schedule", block_id, {"id": block_id, "deleted_at": now})
+                try:
+                    # If we can determine user_id, push will be attempted elsewhere; non-blocking here
+                    pass
+                except Exception:
+                    pass
+            except Exception:
+                pass
             return True, "Class block deleted successfully"
         except Exception as exc:
             return False, f"Failed to delete class block: {str(exc)}"

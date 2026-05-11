@@ -127,10 +127,55 @@ def init_db():
     """)
 
     cur.execute("""
+        CREATE TABLE IF NOT EXISTS settings (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            setting_key TEXT NOT NULL,
+            setting_value TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(user_id, setting_key)
+        )
+    """)
+
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS sync_log (
             id SERIAL PRIMARY KEY,
             user_id INTEGER NOT NULL REFERENCES users(id),
             synced_at TEXT NOT NULL
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS class_schedule (
+            id SERIAL PRIMARY KEY,
+            client_id INTEGER,
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            day_of_week INTEGER NOT NULL,
+            start_time TEXT NOT NULL,
+            end_time TEXT NOT NULL,
+            course_name TEXT,
+            location TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            is_deleted INTEGER DEFAULT 0,
+            deleted_at TEXT
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS work_schedule (
+            id SERIAL PRIMARY KEY,
+            client_id INTEGER,
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            schedule_type TEXT NOT NULL,
+            day_of_week INTEGER,
+            start_time TEXT,
+            end_time TEXT,
+            weekly_hours_target REAL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            is_deleted INTEGER DEFAULT 0,
+            deleted_at TEXT
         )
     """)
 
@@ -156,6 +201,10 @@ class LoginRequest(BaseModel):
     username: str
     password: str
 
+class ChangePasswordRequest(BaseModel):
+    old_password: str
+    new_password: str
+
 class AuthResponse(BaseModel):
     token: str
     user_id: int
@@ -177,9 +226,13 @@ class PushRequest(BaseModel):
     last_synced_at: Optional[str] = None
 
 class PullResponse(BaseModel):
+    users: List[dict]
     tasks: List[dict]
     task_sessions: List[dict]
     task_events: List[dict]
+    settings: List[dict] = []
+    class_schedule: List[dict] = []
+    work_schedule: List[dict] = []
     synced_at: str
 
 
@@ -266,6 +319,25 @@ def login(req: LoginRequest, conn=Depends(get_db)):
     )
 
 
+@app.post("/auth/change-password")
+def change_password(req: ChangePasswordRequest, user=Depends(get_current_user), conn=Depends(get_db)):
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT id, password_hash FROM users WHERE id = %s", (user["user_id"],))
+    current_user = cur.fetchone()
+    if not current_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if not verify_password(req.old_password, current_user["password_hash"]):
+        raise HTTPException(status_code=401, detail="Current password is incorrect")
+
+    cur.execute(
+        "UPDATE users SET password_hash = %s, updated_at = %s WHERE id = %s",
+        (hash_password(req.new_password), datetime.now().isoformat(), user["user_id"]),
+    )
+    conn.commit()
+    return {"detail": "Password changed successfully"}
+
+
 # ==================== SYNC ROUTES ====================
 
 @app.post("/sync/push")
@@ -289,6 +361,14 @@ def push(req: PushRequest, user=Depends(get_current_user), conn=Depends(get_db))
                 _apply_session_op(cur, op.operation_type, data, user_id)
             elif table == "task_events":
                 _apply_event_op(cur, op.operation_type, data, user_id)
+            elif table == "class_schedule":
+                _apply_schedule_op(cur, op.operation_type, data, user_id, table_name="class_schedule")
+            elif table == "work_schedule":
+                _apply_schedule_op(cur, op.operation_type, data, user_id, table_name="work_schedule")
+            elif table == "users":
+                _apply_user_op(cur, op.operation_type, data, user_id)
+            elif table == "settings":
+                _apply_setting_op(cur, op.operation_type, data, user_id)
 
             applied += 1
         except Exception as e:
@@ -311,6 +391,11 @@ def pull(last_synced_at: Optional[str] = None, user=Depends(get_current_user), c
     since = last_synced_at or "1970-01-01T00:00:00"
 
     cur.execute("""
+        SELECT * FROM users WHERE id = %s
+    """, (user_id,))
+    users = [dict(r) for r in cur.fetchall()]
+
+    cur.execute("""
         SELECT * FROM tasks WHERE user_id = %s AND updated_at > %s
     """, (user_id, since))
     tasks = [dict(r) for r in cur.fetchall()]
@@ -325,10 +410,29 @@ def pull(last_synced_at: Optional[str] = None, user=Depends(get_current_user), c
     """, (user_id, since))
     events = [dict(r) for r in cur.fetchall()]
 
+    cur.execute("""
+        SELECT * FROM settings WHERE user_id = %s AND updated_at > %s
+    """, (user_id, since))
+    settings = [dict(r) for r in cur.fetchall()]
+
+    cur.execute("""
+        SELECT * FROM class_schedule WHERE user_id = %s AND updated_at > %s
+    """, (user_id, since))
+    class_schedule = [dict(r) for r in cur.fetchall()]
+
+    cur.execute("""
+        SELECT * FROM work_schedule WHERE user_id = %s AND updated_at > %s
+    """, (user_id, since))
+    work_schedule = [dict(r) for r in cur.fetchall()]
+
     return PullResponse(
+        users=users,
         tasks=tasks,
         task_sessions=sessions,
         task_events=events,
+        settings=settings,
+        class_schedule=class_schedule,
+        work_schedule=work_schedule,
         synced_at=datetime.now().isoformat()
     )
 
@@ -393,6 +497,18 @@ def _apply_session_op(cur, op_type: str, data: dict, user_id: int):
         """, (client_id, user_id, data.get("task_id"), data.get("duration_minutes"),
               data.get("notes"), data.get("logged_at"), data.get("created_at"),
               data.get("is_deleted", 0)))
+    elif op_type == "UPDATE":
+        # Update session fields based on client_id
+        cur.execute("""
+            UPDATE task_sessions SET
+                task_client_id=%s, duration_minutes=%s, notes=%s, logged_at=%s, is_deleted=%s, deleted_at=%s
+            WHERE client_id=%s AND user_id=%s
+        """, (data.get("task_id"), data.get("duration_minutes"), data.get("notes"), data.get("logged_at"),
+              data.get("is_deleted", 0), data.get("deleted_at"), client_id, user_id))
+    elif op_type == "DELETE":
+        cur.execute("""
+            UPDATE task_sessions SET is_deleted=1, deleted_at=%s WHERE client_id=%s AND user_id=%s
+        """, (data.get("deleted_at") or datetime.now().isoformat(), client_id, user_id))
 
 
 def _apply_event_op(cur, op_type: str, data: dict, user_id: int):
@@ -408,3 +524,83 @@ def _apply_event_op(cur, op_type: str, data: dict, user_id: int):
             VALUES (%s, %s, %s, %s, %s, %s, %s)
         """, (client_id, user_id, data.get("task_id"), data.get("event_type"),
               data.get("message"), data.get("metadata"), data.get("created_at")))
+
+
+def _apply_schedule_op(cur, op_type: str, data: dict, user_id: int, table_name: str = "class_schedule"):
+    client_id = data.get("id") or data.get("client_id")
+    if not client_id:
+        return
+
+    if op_type == "INSERT":
+        cur.execute(f"SELECT id FROM {table_name} WHERE client_id = %s AND user_id = %s", (client_id, user_id))
+        if cur.fetchone():
+            return
+        if table_name == "class_schedule":
+            cur.execute("""
+                INSERT INTO class_schedule (client_id, user_id, day_of_week, start_time, end_time, course_name, location, created_at, updated_at, is_deleted)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (
+                client_id, user_id, data.get("day_of_week"), data.get("start_time"), data.get("end_time"),
+                data.get("course_name"), data.get("location"), data.get("created_at"), data.get("updated_at"), data.get("is_deleted", 0)
+            ))
+        else:
+            cur.execute("""
+                INSERT INTO work_schedule (client_id, user_id, schedule_type, day_of_week, start_time, end_time, weekly_hours_target, created_at, updated_at, is_deleted)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (
+                client_id, user_id, data.get("schedule_type"), data.get("day_of_week"), data.get("start_time"), data.get("end_time"),
+                data.get("weekly_hours_target"), data.get("created_at"), data.get("updated_at"), data.get("is_deleted", 0)
+            ))
+
+    elif op_type == "UPDATE":
+        if table_name == "class_schedule":
+            cur.execute("""
+                UPDATE class_schedule SET day_of_week=%s, start_time=%s, end_time=%s, course_name=%s, location=%s, updated_at=%s, is_deleted=%s, deleted_at=%s
+                WHERE client_id=%s AND user_id=%s
+            """, (
+                data.get("day_of_week"), data.get("start_time"), data.get("end_time"), data.get("course_name"), data.get("location"),
+                data.get("updated_at"), data.get("is_deleted", 0), data.get("deleted_at"), client_id, user_id
+            ))
+        else:
+            cur.execute("""
+                UPDATE work_schedule SET schedule_type=%s, day_of_week=%s, start_time=%s, end_time=%s, weekly_hours_target=%s, updated_at=%s, is_deleted=%s, deleted_at=%s
+                WHERE client_id=%s AND user_id=%s
+            """, (
+                data.get("schedule_type"), data.get("day_of_week"), data.get("start_time"), data.get("end_time"), data.get("weekly_hours_target"),
+                data.get("updated_at"), data.get("is_deleted", 0), data.get("deleted_at"), client_id, user_id
+            ))
+
+    elif op_type == "DELETE":
+        # Soft-delete by marking is_deleted and setting deleted_at
+        deleted_at = data.get("deleted_at") or datetime.now().isoformat()
+        cur.execute(f"UPDATE {table_name} SET is_deleted=1, deleted_at=%s WHERE client_id=%s AND user_id=%s", (deleted_at, client_id, user_id))
+
+
+def _apply_user_op(cur, op_type: str, data: dict, user_id: int):
+    # Only allow updating the authenticated user's profile fields
+    if op_type == "UPDATE":
+        # Whitelist permissible profile fields that can be synced
+        allowed = {"full_name", "email", "profile_photo", "sleep_hours", "wake_time", "has_work", "work_hours_per_week", "work_days_per_week", "study_goal_hours_per_day"}
+        updates = {k: data.get(k) for k in allowed if k in data}
+        if not updates:
+            return
+        set_clause = ", ".join([f"{k} = %s" for k in updates.keys()])
+        params = list(updates.values()) + [datetime.now().isoformat(), user_id]
+        # Ensure updated_at is set
+        try:
+            cur.execute(f"UPDATE users SET {set_clause}, updated_at = %s WHERE id = %s", tuple(params))
+        except Exception:
+            pass
+
+
+def _apply_setting_op(cur, op_type: str, data: dict, user_id: int):
+    # Expect data to contain setting_key and setting_value
+    key = data.get("setting_key") or data.get("key")
+    val = data.get("setting_value") or data.get("value")
+    updated_at = data.get("updated_at") or datetime.now().isoformat()
+    if not key:
+        return
+    try:
+        cur.execute("INSERT INTO settings (user_id, setting_key, setting_value, updated_at) VALUES (%s, %s, %s, %s) ON CONFLICT (user_id, setting_key) DO UPDATE SET setting_value = EXCLUDED.setting_value, updated_at = EXCLUDED.updated_at", (user_id, key, val, updated_at))
+    except Exception:
+        pass

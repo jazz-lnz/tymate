@@ -192,8 +192,16 @@ def main(page: ft.Page):
 # Run the app
 if __name__ == "__main__":
     # Load environment (for FLET_SECRET_KEY, DB path, etc.)
-    load_dotenv()
+    load_dotenv(dotenv_path=".env", override=True)
 
     view_mode = os.getenv("FLET_APP_VIEW", "web").lower()
     app_view = ft.AppView.WEB_BROWSER if view_mode == "web" else ft.AppView.FLET_APP
-    ft.app(target=main, view=app_view, assets_dir="assets")
+    
+    # Web mode: set port and host for network accessibility; desktop mode: ignored
+    app_kwargs = {"target": main, "view": app_view, "assets_dir": "assets"}
+    if view_mode == "web":
+        web_port = int(os.getenv("FLET_WEB_PORT", "8080"))
+        app_kwargs["port"] = web_port
+        app_kwargs["host"] = "0.0.0.0"  # Listen on all interfaces (needed for mobile access)
+    
+    ft.app(**app_kwargs)

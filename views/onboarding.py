@@ -32,7 +32,7 @@ def OnboardingPage(page: ft.Page, on_complete, session: dict):
         offset=ft.Offset(0, 2),
     )
     window_width = page.window.width or 430
-    content_width = max(320, min(760, window_width - 44))
+    content_width = max(320, min(760, window_width - 24))
     form_width = max(280, min(420, content_width - 40))
 
     user_id = session.get("user_id") if session else None
@@ -121,7 +121,7 @@ def OnboardingPage(page: ft.Page, on_complete, session: dict):
                 ],
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             ),
-            padding=24,
+            padding=12,
             width=content_width,
             border=ft.border.all(1.5, border_color),
             border_radius=12,
@@ -228,7 +228,7 @@ def OnboardingPage(page: ft.Page, on_complete, session: dict):
                 ],
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             ),
-            padding=24,
+            padding=12,
             width=content_width,
             border=ft.border.all(1.5, border_color),
             border_radius=12,
@@ -513,7 +513,7 @@ def OnboardingPage(page: ft.Page, on_complete, session: dict):
                 ],
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             ),
-            padding=24,
+            padding=12,
             width=content_width,
             border=ft.border.all(1.5, border_color),
             border_radius=12,
@@ -654,7 +654,7 @@ def OnboardingPage(page: ft.Page, on_complete, session: dict):
                 ],
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             ),
-            padding=24,
+            padding=12,
             width=content_width,
             border=ft.border.all(1.5, border_color),
             border_radius=12,

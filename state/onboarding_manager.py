@@ -8,6 +8,7 @@ UPDATED: Now accounts for wake time, bedtime, and real-time calculations
 from datetime import datetime, time, timedelta
 from typing import Dict, Optional
 from storage.sqlite import get_database
+from services import sync_service
 
 class OnboardingManager:
     """
@@ -232,7 +233,27 @@ class OnboardingManager:
             "created_at": timestamp,
             "updated_at": timestamp,
         })
-        
+        try:
+            # Enqueue user update and settings entries for sync (non-blocking)
+            try:
+                user = self.db.get_by_id("users", user_id)
+                sync_service.enqueue(user_id, "UPDATE", "users", user_id, user)
+            except Exception:
+                pass
+
+            try:
+                sync_service.enqueue(user_id, "INSERT", "settings", 0, {"setting_key": "onboarding_completed", "setting_value": "true", "updated_at": timestamp})
+                sync_service.enqueue(user_id, "INSERT", "settings", 0, {"setting_key": "onboarding_date", "setting_value": timestamp, "updated_at": timestamp})
+            except Exception:
+                pass
+
+            try:
+                sync_service.push(user_id)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
         return True
     
     def get_user_budget(self, user_id: int) -> Optional[Dict]:

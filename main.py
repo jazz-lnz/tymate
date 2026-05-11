@@ -1,4 +1,5 @@
 import os
+import time
 from dotenv import load_dotenv
 import flet as ft
 from components.navbar import create_navbar
@@ -196,6 +197,13 @@ if __name__ == "__main__":
 
     view_mode = os.getenv("FLET_APP_VIEW", "web").lower()
     app_view = ft.AppView.WEB_BROWSER if view_mode == "web" else ft.AppView.FLET_APP
+
+    if view_mode == "web":
+        app_timezone = os.getenv("TYMATE_TIMEZONE", "Asia/Manila").strip()
+        if app_timezone:
+            os.environ["TZ"] = app_timezone
+            if hasattr(time, "tzset"):
+                time.tzset()
     
     # Web mode: set port and host for network accessibility; desktop mode: ignored
     app_kwargs = {"target": main, "view": app_view, "assets_dir": "assets"}

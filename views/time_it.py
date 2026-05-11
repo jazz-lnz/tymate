@@ -2,6 +2,7 @@ import flet as ft
 from datetime import datetime, timedelta
 import time
 import threading
+import os
 from state.task_manager import TaskManager
 from state.session_manager import SessionManager
 from utils.time_helpers import format_minutes
@@ -27,6 +28,7 @@ def TimeItPage(page: ft.Page, session: dict = None):
     task_manager = TaskManager()
     session_manager = SessionManager()
     user_id = session["user"].id
+    is_web_mode = os.getenv("FLET_APP_VIEW", "web").lower() == "web"
     panel_bg = "#FFFFFF"
     border_color = "#B7C4D8"
     title_color = "#23211E"
@@ -1064,7 +1066,7 @@ def TimeItPage(page: ft.Page, session: dict = None):
 
     mode_panel = ft.Container(
         content=tabs,
-        height=450,
+        height=500,
         border=ft.border.all(1.5, border_color),
         border_radius=12,
         bgcolor=panel_bg,

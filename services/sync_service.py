@@ -179,6 +179,8 @@ def pull(user_id: int) -> tuple[bool, str]:
         _merge_tasks(db, data.get("tasks", []), user_id)
         _merge_sessions(db, data.get("task_sessions", []), user_id)
         _merge_events(db, data.get("task_events", []), user_id)
+        _merge_users(db, data.get("users", []), user_id)
+        _merge_settings(db, data.get("settings", []), user_id)
 
         synced_at = data.get("synced_at", datetime.now().isoformat())
         _save_last_synced_at(user_id, synced_at)
@@ -288,6 +290,70 @@ def _merge_events(db, events: list, user_id: int):
                 db.commit()
             except Exception:
                 pass
+
+
+def _merge_users(db, users: list, user_id: int):
+    """
+    Merge user profile updates from server into local users table.
+    Only merges records for the current user (safety).
+    """
+    for user in users:
+        client_id = user.get("client_id") or user.get("id")
+        if not client_id:
+            continue
+        # Only merge the currently authenticated user's profile
+        try:
+            if int(client_id) != int(user_id):
+                continue
+        except Exception:
+            continue
+
+        existing = db.fetch_one(
+            "SELECT id, updated_at FROM users WHERE id = ?",
+            (client_id,)
+        )
+
+        # Strip sensitive fields before applying
+        user_data = {k: v for k, v in user.items() if k not in ("id", "client_id", "password_hash")}
+        user_data["id"] = client_id
+
+        if existing:
+            # Only overwrite if server record is newer
+            if user.get("updated_at", "") >= existing.get("updated_at", ""):
+                try:
+                    db.update("users", user_data, "id = ?", (client_id,))
+                except Exception:
+                    pass
+        else:
+            try:
+                db.execute_query(
+                    f"INSERT OR IGNORE INTO users ({','.join(user_data.keys())}) VALUES ({','.join(['?']*len(user_data))})",
+                    tuple(user_data.values()),
+                )
+                db.commit()
+            except Exception:
+                pass
+
+
+def _merge_settings(db, settings: list, user_id: int):
+    """Merge settings records from server into local `settings` table."""
+    for s in settings:
+        try:
+            key = s.get("setting_key") or s.get("key")
+            val = s.get("setting_value") or s.get("value")
+            updated_at = s.get("updated_at") or datetime.now().isoformat()
+            if not key:
+                continue
+            db.execute_query(
+                "INSERT OR REPLACE INTO settings (user_id, setting_key, setting_value, updated_at) VALUES (?, ?, ?, ?)",
+                (user_id, key, val, updated_at),
+            )
+        except Exception:
+            pass
+    try:
+        db.commit()
+    except Exception:
+        pass
 
 
 # ==================== Persistence Helpers ====================

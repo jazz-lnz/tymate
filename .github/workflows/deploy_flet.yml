@@ -39,7 +39,6 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     permissions:
-      id-token: write
       contents: read
 
     steps:
@@ -48,16 +47,10 @@ jobs:
         with:
           name: flet-app
 
-      - name: Login to Azure
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_714903A5336D4A35A98C325E52F6506A }}
-          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_EE75303CF0DB4C89949880F7E85E1915 }}
-          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_D1BBC7893DCD4420A5B75E34CB15AF0E }}
-
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v3
         with:
           app-name: 'tymate-app'
           slot-name: 'Production'
+          publish-profile: ${{ secrets.AZURE_FLET_PUBLISH_PROFILE }}
           package: .

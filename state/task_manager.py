@@ -5,6 +5,7 @@ from typing import List, Optional
 from storage.sqlite import get_database
 from models.task import Task
 from state.session_manager import SessionManager
+from services import sync_service
 
 class TaskManager:
     """
@@ -39,6 +40,14 @@ class TaskManager:
         except Exception:
             # Event logs should not block the primary task operation.
             pass
+
+    def _enqueue_and_push(self, operation_type: str, table_name: str, record_id: int, record_data: dict, user_id: int):
+        """Queue a sync operation and immediately try to push."""
+        try:
+            sync_service.enqueue(user_id, operation_type, table_name, record_id, record_data)
+            sync_service.push(user_id)  # fires in background; silently fails if offline
+        except Exception:
+            pass  # sync never blocks the main operation
 
     def get_task_events(self, task_id: int) -> List[dict]:
         """Fetch timeline events for one task (newest first)."""
@@ -164,6 +173,7 @@ class TaskManager:
                 },
             )
             
+            self._enqueue_and_push("INSERT", "tasks", task_id, task.to_dict(), user_id)
             return True, "Task created successfully!", task
             
         except Exception as e:
@@ -426,6 +436,9 @@ class TaskManager:
                         metadata={"fields": changed_fields},
                     )
 
+            updated_task = self.get_task(task_id, include_deleted=True)
+            if updated_task:
+                self._enqueue_and_push("UPDATE", "tasks", task_id, updated_task.to_dict(), updated_task.user_id)
             return True, "Task updated successfully!"
         except Exception as e:
             return False, f"Failed to update task: {str(e)}"
@@ -580,10 +593,12 @@ class TaskManager:
                     event_type="TASK_DELETED",
                     message="Task moved to trash",
                 )
+                self._enqueue_and_push("DELETE", "tasks", task_id, {"id": task_id}, task.user_id)
                 return True, "Task moved to trash"
             else:
                 # Hard delete (permanently remove)
                 self.db.delete("tasks", "id = ?", (task_id,))
+                self._enqueue_and_push("DELETE", "tasks", task_id, {"id": task_id}, task.user_id)
                 return True, "Task permanently deleted"
                 
         except Exception as e:

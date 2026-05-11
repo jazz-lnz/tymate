@@ -5,6 +5,7 @@ import os
 from dotenv import load_dotenv
 from storage.sqlite import get_database
 from models.user import User
+from services import sync_service
 
 # Load environment variables
 load_dotenv()
@@ -89,6 +90,12 @@ class AuthManager:
             # Log the registration
             self._log_audit(user_id, "USER_REGISTERED", "users", user_id, 
                           new_value=f"New user registered: {username}")
+
+            # Best-effort server registration. Do not block local registration when offline.
+            try:
+                sync_service.register_on_server(username, password, email, full_name)
+            except Exception:
+                pass
             
             return True, "Account created successfully!", user
             
@@ -210,6 +217,14 @@ class AuthManager:
         self._log_login_attempt(username, True, None, ip_address)
         self._log_audit(user.id, "USER_LOGIN", "sessions", None, 
                        new_value=f"User logged in successfully")
+
+        # Best-effort server login + pull latest data. Never block local login.
+        try:
+            ok, msg, server_data = sync_service.login_on_server(username, password)
+            if ok:
+                sync_service.pull(user.id)
+        except Exception:
+            pass
         
         return True, "Login successful!", user, session_token
     

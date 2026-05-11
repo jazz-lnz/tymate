@@ -260,42 +260,73 @@ def SettingsPage(page: ft.Page, session: dict = None):
             return
         
         selected_file = e.files[0]
-        file_path = selected_file.path
-        
-        # Validate the image
-        is_valid, error_msg = validate_image_file(file_path)
-        
-        if not is_valid:
-            photo_message.value = error_msg
-            photo_message.color = ft.Colors.RED_400
-            page.update()
-            return
-        
+        # Support both desktop (path) and web (in-memory bytes) uploads
+        file_path = getattr(selected_file, "path", None)
+        file_bytes = None
+        original_name = getattr(selected_file, "name", None)
+
+        # Some runtimes (web) provide file bytes but no local path
+        if not file_path:
+            file_bytes = getattr(selected_file, "bytes", None) or getattr(selected_file, "content", None)
+
+        # Prepare photos directory
         try:
-            # Create profile photos directory if it doesn't exist
             photos_dir = Path("data/profile_photos")
             photos_dir.mkdir(parents=True, exist_ok=True)
-            
-            # Generate unique filename: user_id + original extension
-            file_ext = Path(file_path).suffix
+        except Exception:
+            photos_dir = Path("data/profile_photos")
+
+        # If we have raw bytes, write them out first
+        if file_bytes is not None:
+            file_ext = Path(original_name or "upload").suffix or ".png"
             new_filename = f"user_{user.id}{file_ext}"
             dest_path = photos_dir / new_filename
-            
-            # Copy file to destination
-            shutil.copy2(file_path, dest_path)
-            
-            # Update database with relative path
-            profile_photo_path = f"data/profile_photos/{new_filename}"
+            try:
+                with open(dest_path, "wb") as f:
+                    f.write(file_bytes)
+                profile_photo_path = f"data/profile_photos/{new_filename}"
+            except Exception as ex:
+                photo_message.value = f"Upload failed: {str(ex)}"
+                photo_message.color = ft.Colors.RED_400
+                page.update()
+                return
+        else:
+            # Desktop/local path flow
+            if not file_path:
+                photo_message.value = "Upload failed: no file provided"
+                photo_message.color = ft.Colors.RED_400
+                page.update()
+                return
+
+            # Validate the image
+            is_valid, error_msg = validate_image_file(file_path)
+            if not is_valid:
+                photo_message.value = error_msg
+                photo_message.color = ft.Colors.RED_400
+                page.update()
+                return
+
+            try:
+                file_ext = Path(file_path).suffix
+                new_filename = f"user_{user.id}{file_ext}"
+                dest_path = photos_dir / new_filename
+                shutil.copy2(file_path, dest_path)
+                profile_photo_path = f"data/profile_photos/{new_filename}"
+            except Exception as ex:
+                photo_message.value = f"Upload failed: {str(ex)}"
+                photo_message.color = ft.Colors.RED_400
+                page.update()
+                return
+
+        # Update DB with new profile photo path
+        try:
             success, msg = auth.update_user_profile(
                 user.id,
                 profile_photo=profile_photo_path
             )
-            
+
             if success:
-                # Update user object and avatar display
                 user.profile_photo = profile_photo_path
-                
-                # Update avatar to show new image
                 if os.path.exists(profile_photo_path):
                     avatar_placeholder.content = ft.Image(
                         src=profile_photo_path,
@@ -304,17 +335,15 @@ def SettingsPage(page: ft.Page, session: dict = None):
                         fit=ft.ImageFit.COVER,
                         border_radius=48,
                     )
-                
                 photo_message.value = "Profile picture updated!"
                 photo_message.color = ft.Colors.GREEN_600
             else:
                 photo_message.value = f"Failed to update: {msg}"
                 photo_message.color = ft.Colors.RED_400
-                
         except Exception as ex:
             photo_message.value = f"Upload failed: {str(ex)}"
             photo_message.color = ft.Colors.RED_400
-        
+
         page.update()
     
     def remove_profile_photo(e):

@@ -222,6 +222,11 @@ class AuthManager:
         try:
             ok, msg, server_data = sync_service.login_on_server(username, password)
             if ok:
+                try:
+                    # Push any queued local operations first, then pull server state
+                    sync_service.push(user.id)
+                except Exception:
+                    pass
                 sync_service.pull(user.id)
         except Exception:
             pass

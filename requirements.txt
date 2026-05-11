@@ -13,3 +13,4 @@ python-dotenv==1.0.1
 bcrypt==4.1.2
 # sqlcipher3==0.5.4  # Requires C++ build tools - optional for AES-256 database encryption
 # Install with: pip install sqlcipher3 (requires Microsoft Visual C++ Build Tools)
+requests

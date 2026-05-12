@@ -29,6 +29,12 @@ class AnalyticsEngine:
             "%Y-%m-%d",
             "%Y-%m-%dT%H:%M:%S.%f",
             "%Y-%m-%dT%H:%M:%S",
+            "%m-%d-%Y %H:%M:%S.%f",
+            "%m-%d-%Y %H:%M:%S",
+            "%m-%d-%Y",
+            "%m/%d/%Y %H:%M:%S.%f",
+            "%m/%d/%Y %H:%M:%S",
+            "%m/%d/%Y",
         ]
         
         for fmt in formats:
@@ -639,15 +645,22 @@ class AnalyticsEngine:
                 date = today - timedelta(days=days - i - 1)
                 date_str = date.strftime("%Y-%m-%d")
                 
-                # Count completed tasks for this day
+                # Count completed tasks for this day.
+                # Some `completed_at` values may be in MM-DD-YYYY (user input),
+                # so match both ISO and common US formats.
+                mm_dd = date.strftime("%m-%d-%Y")
                 count = self.db.fetch_one("""
                     SELECT COUNT(*) as count
                     FROM tasks
                     WHERE user_id = ?
-                    AND DATE(completed_at) = ?
                     AND status = 'Completed'
                     AND is_deleted = 0
-                """, (user_id, date_str))
+                    AND (
+                        DATE(completed_at) = ?
+                        OR completed_at = ?
+                        OR completed_at LIKE ?
+                    )
+                """, (user_id, date_str, mm_dd, f"%{mm_dd}%"))
                 
                 # Get task session minutes logged on this date
                 minutes = self.db.fetch_one("""

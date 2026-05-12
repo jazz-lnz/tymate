@@ -484,11 +484,31 @@ class TaskManager:
                 return False, "Duration must be greater than 0 minutes"
 
             session_manager = SessionManager()
+            # If caller supplied an event_date (when task was completed), use it
+            # as the session's logged_at so analytics will count the session.
+            logged_at_val = None
+            if event_date:
+                try:
+                    # If ISO datetime provided, use as-is; if only date, append midnight.
+                    from datetime import datetime as _dt
+
+                    try:
+                        _dt.fromisoformat(event_date)
+                        logged_at_val = event_date
+                    except Exception:
+                        if len(event_date) == 10:
+                            logged_at_val = event_date + "T00:00:00"
+                        else:
+                            logged_at_val = None
+                except Exception:
+                    logged_at_val = None
+
             ok, msg, _ = session_manager.log_session(
                 user_id=task.user_id,
                 task_id=task_id,
                 duration_minutes=normalized_duration,
                 notes=notes,
+                logged_at=logged_at_val,
             )
             if not ok:
                 return False, msg

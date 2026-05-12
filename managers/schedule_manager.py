@@ -92,11 +92,10 @@ class ScheduleManager:
                 uid = record["user_id"] if record and record.get("user_id") else None
                 if uid:
                     sync_service.enqueue(uid, "DELETE", "class_schedule", block_id, {"id": block_id, "deleted_at": now})
-                try:
-                    # If we can determine user_id, push will be attempted elsewhere; non-blocking here
-                    pass
-                except Exception:
-                    pass
+                    try:
+                        sync_service.push(uid)
+                    except Exception:
+                        pass
             except Exception:
                 pass
             return True, "Class block deleted successfully"

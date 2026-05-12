@@ -423,6 +423,15 @@ class AuthManager:
                 user_id, "PROFILE_UPDATE", "users", user_id,
                 new_value=f"Updated fields: {', '.join(updates.keys())}"
             )
+
+            # Sync updated profile to server (best-effort)
+            try:
+                updated_user = self.db.get_by_id("users", user_id)
+                if updated_user:
+                    sync_service.enqueue(user_id, "UPDATE", "users", user_id, dict(updated_user))
+                    sync_service.push(user_id)
+            except Exception:
+                pass
             
             return True, "Profile updated successfully"
         except Exception as e:

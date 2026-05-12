@@ -4,6 +4,7 @@ from typing import List, Optional
 from storage.sqlite import get_database
 from models.session import Session
 from models.task import Task
+from services import sync_service
 
 
 class SessionManager:
@@ -54,6 +55,14 @@ class SessionManager:
                 pass
         except Exception:
             pass
+
+    def _enqueue_and_push(self, operation_type: str, table_name: str, record_id: int, record_data: dict, user_id: int):
+        """Queue a sync operation and immediately try to push."""
+        try:
+            sync_service.enqueue(user_id, operation_type, table_name, record_id, record_data)
+            sync_service.push(user_id)
+        except Exception:
+            pass  # sync never blocks the main operation
 
     def add_session(
         self,
@@ -112,6 +121,15 @@ class SessionManager:
                     event_type="TASK_STARTED",
                     message="Task auto-started from first session",
                 )
+                # Sync the auto-promoted task status to the server
+                promoted_task = self.db.fetch_one(
+                    "SELECT * FROM tasks WHERE id = ? AND is_deleted = 0",
+                    (task_id,),
+                )
+                if promoted_task:
+                    self._enqueue_and_push("UPDATE", "tasks", task_id, dict(promoted_task), user_id)
+
+            self._enqueue_and_push("INSERT", "task_sessions", session_id, session.to_dict(), user_id)
 
             if task is not None:
                 if task.sessions is None:
@@ -250,7 +268,9 @@ class SessionManager:
             if not updated:
                 return False, "Failed to load updated session", None
 
-            return True, "Session updated successfully", Session.from_dict(updated)
+            updated_session = Session.from_dict(updated)
+            self._enqueue_and_push("UPDATE", "task_sessions", session_id, updated_session.to_dict(), user_id)
+            return True, "Session updated successfully", updated_session
         except Exception as exc:
             return False, f"Failed to update session: {str(exc)}", None
 
@@ -283,6 +303,7 @@ class SessionManager:
                         "notes": existing.get("notes"),
                     },
                 )
+                self._enqueue_and_push("DELETE", "task_sessions", session_id, {"id": session_id}, existing["user_id"])
             return True, "Session deleted successfully"
         except Exception as exc:
             return False, f"Failed to delete session: {str(exc)}"

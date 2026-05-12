@@ -87,6 +87,24 @@ def login_on_server(username: str, password: str) -> tuple[bool, str, dict]:
         return False, str(e), {}
 
 
+def change_password_on_server(old_password: str, new_password: str) -> tuple[bool, str]:
+    """Change password on the sync server so it works cross-device."""
+    if not is_authenticated():
+        return False, "Not authenticated or sync not configured"
+    try:
+        resp = requests.post(f"{SYNC_SERVER_URL}/auth/change-password", json={
+            "old_password": old_password,
+            "new_password": new_password,
+        }, headers=_headers(), timeout=10)
+        if resp.status_code == 200:
+            return True, "Password changed on server"
+        return False, resp.json().get("detail", "Password change failed")
+    except requests.exceptions.ConnectionError:
+        return False, "Could not reach sync server — working offline"
+    except Exception as e:
+        return False, str(e)
+
+
 # ==================== Push ====================
 
 def push(user_id: int) -> tuple[bool, str]:
@@ -181,11 +199,13 @@ def pull(user_id: int) -> tuple[bool, str]:
         _merge_events(db, data.get("task_events", []), user_id)
         _merge_users(db, data.get("users", []), user_id)
         _merge_settings(db, data.get("settings", []), user_id)
+        _merge_class_schedule(db, data.get("class_schedule", []), user_id)
 
         synced_at = data.get("synced_at", datetime.now().isoformat())
         _save_last_synced_at(user_id, synced_at)
 
-        total = len(data["tasks"]) + len(data["task_sessions"]) + len(data["task_events"])
+        total = (len(data.get("tasks", [])) + len(data.get("task_sessions", []))
+                 + len(data.get("task_events", [])) + len(data.get("class_schedule", [])))
         return True, f"Pulled {total} records from server"
 
     except requests.exceptions.ConnectionError:
@@ -329,6 +349,36 @@ def _merge_users(db, users: list, user_id: int):
                 db.execute_query(
                     f"INSERT OR IGNORE INTO users ({','.join(user_data.keys())}) VALUES ({','.join(['?']*len(user_data))})",
                     tuple(user_data.values()),
+                )
+                db.commit()
+            except Exception:
+                pass
+
+
+def _merge_class_schedule(db, blocks: list, user_id: int):
+    """Merge class schedule blocks from server into local class_schedule table."""
+    for block in blocks:
+        client_id = block.get("client_id") or block.get("id")
+        if not client_id:
+            continue
+        existing = db.fetch_one(
+            "SELECT id, updated_at FROM class_schedule WHERE id = ? AND user_id = ?",
+            (client_id, user_id)
+        )
+        block_data = {k: v for k, v in block.items() if k not in ("client_id",)}
+        block_data["id"] = client_id
+        block_data["user_id"] = user_id
+        if existing:
+            if block.get("updated_at", "") >= existing.get("updated_at", ""):
+                try:
+                    db.update("class_schedule", block_data, "id = ? AND user_id = ?", (client_id, user_id))
+                except Exception:
+                    pass
+        else:
+            try:
+                db.execute_query(
+                    f"INSERT OR IGNORE INTO class_schedule ({','.join(block_data.keys())}) VALUES ({','.join(['?']*len(block_data))})",
+                    tuple(block_data.values())
                 )
                 db.commit()
             except Exception:

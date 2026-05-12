@@ -664,6 +664,7 @@ class TaskManager:
                     event_type="TASK_RESTORED",
                     message="Task restored from trash",
                 )
+                self._enqueue_and_push("UPDATE", "tasks", task_id, task.to_dict(), task.user_id)
             return True, "Task restored successfully!"
         except Exception as e:
             return False, f"Failed to restore task: {str(e)}"

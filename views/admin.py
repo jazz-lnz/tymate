@@ -1,6 +1,7 @@
 import flet as ft
 from state.auth_manager import AuthManager
 from datetime import datetime
+from services import sync_service
 
 def AdminPage(page: ft.Page, session: dict):
     """
@@ -182,12 +183,13 @@ def AdminPage(page: ft.Page, session: dict):
             return
         
         new_status = 0 if user["is_active"] else 1
+        now = datetime.now().isoformat()
         
         auth.db.update(
             "users",
             {
                 "is_active": new_status,
-                "updated_at": datetime.now().isoformat()
+                "updated_at": now,
             },
             "id = ?",
             (user_id,)
@@ -202,6 +204,17 @@ def AdminPage(page: ft.Page, session: dict):
             old_value=str(user["is_active"]),
             new_value=str(new_status)
         )
+
+        # Sync the status change to the server
+        try:
+            updated_user = auth.db.get_by_id("users", user_id)
+            if updated_user:
+                admin_id = session.get("user_id") or (session.get("user").id if session.get("user") else None)
+                if admin_id:
+                    sync_service.enqueue(admin_id, "UPDATE", "users", user_id, dict(updated_user))
+                    sync_service.push(admin_id)
+        except Exception:
+            pass
         
         status_message.value = f"User {'enabled' if new_status else 'disabled'} successfully"
         status_message.color = ft.Colors.GREEN_700
@@ -311,6 +324,15 @@ def AdminPage(page: ft.Page, session: dict):
     def confirm_delete_user(user_id, username):
         """Show confirmation dialog before deleting user"""
         def delete_confirmed(e):
+            # Sync the deletion to server BEFORE deleting locally
+            try:
+                admin_id = session.get("user_id") or (session.get("user").id if session.get("user") else None)
+                if admin_id:
+                    sync_service.enqueue(admin_id, "DELETE", "users", user_id, {"id": user_id})
+                    sync_service.push(admin_id)
+            except Exception:
+                pass
+
             # Delete user
             auth.db.delete("users", "id = ?", (user_id,))
             

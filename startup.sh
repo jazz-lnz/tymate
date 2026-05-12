@@ -8,8 +8,6 @@ pip install -r requirements.txt --quiet
 
 PORT=${PORT:-8080}
 export FLET_APP_VIEW=web
-export TYMATE_TIMEZONE=${TYMATE_TIMEZONE:-Asia/Manila}
-export TZ="$TYMATE_TIMEZONE"
 
 echo "Starting on port $PORT..."
 

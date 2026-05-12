@@ -78,7 +78,7 @@ def AnalyticsPage(page: ft.Page, session: dict = None):
         return window_width() < 900
 
     def content_width():
-        return max(380, window_width() - 48)
+        return min(1120, max(380, window_width() - 48))
 
     def overview_card_width():
         width = window_width()
@@ -835,7 +835,7 @@ def AnalyticsPage(page: ft.Page, session: dict = None):
             expand=True,
         ),
         width=content_width(),
-        padding=ft.padding.only(left=24, right=24, top=66, bottom=24),
+        padding=ft.padding.only(left=20, right=20, top=66, bottom=24),
     )
 
     analytics_container = ft.Container(

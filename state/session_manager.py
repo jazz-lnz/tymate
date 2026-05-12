@@ -4,7 +4,6 @@ from typing import List, Optional
 from storage.sqlite import get_database
 from models.session import Session
 from models.task import Task
-from services import sync_service
 
 
 class SessionManager:
@@ -118,12 +117,6 @@ class SessionManager:
                 if task.sessions is None:
                     task.sessions = []
                 task.sessions.append(session)
-
-            try:
-                sync_service.enqueue(user_id, "INSERT", "task_sessions", session.id, session.to_dict())
-                sync_service.push(user_id)
-            except Exception:
-                pass
 
             return True, "Session logged successfully!", session
         except Exception as exc:
@@ -257,12 +250,6 @@ class SessionManager:
             if not updated:
                 return False, "Failed to load updated session", None
 
-            try:
-                sync_service.enqueue(user_id, "UPDATE", "task_sessions", session_id, updated)
-                sync_service.push(user_id)
-            except Exception:
-                pass
-
             return True, "Session updated successfully", Session.from_dict(updated)
         except Exception as exc:
             return False, f"Failed to update session: {str(exc)}", None
@@ -296,18 +283,6 @@ class SessionManager:
                         "notes": existing.get("notes"),
                     },
                 )
-            try:
-                deleted_at = datetime.now().isoformat()
-                sync_service.enqueue(
-                    existing["user_id"] if existing else 0,
-                    "DELETE",
-                    "task_sessions",
-                    session_id,
-                    {"id": session_id, "is_deleted": 1, "deleted_at": deleted_at},
-                )
-                sync_service.push(existing["user_id"] if existing else 0)
-            except Exception:
-                pass
             return True, "Session deleted successfully"
         except Exception as exc:
             return False, f"Failed to delete session: {str(exc)}"

@@ -4,11 +4,6 @@ import time
 import threading
 import os
 
-try:
-    from flet.core.page import PageDisconnectedException
-except Exception:
-    PageDisconnectedException = None
-
 from state.onboarding_manager import OnboardingManager
 from utils.time_helpers import format_minutes
 from managers.schedule_manager import ScheduleManager
@@ -192,19 +187,8 @@ def DashboardPage(page: ft.Page, session: dict = None):
 
                 time_status_text.value = _build_status_msg(live_h_wake, live_h_bed)
 
-                try:
-                    page.update()
-                except Exception as e:
-                    # Stop the loop cleanly if the page is disconnected
-                    if PageDisconnectedException is not None and isinstance(e, PageDisconnectedException):
-                        break
-                    # Fall back: check by name for environments where import differs
-                    if e.__class__.__name__ == "PageDisconnectedException":
-                        break
-                    # otherwise ignore transient assertion/attribute errors
-                    pass
+                page.update()
             except (AssertionError, AttributeError):
-                # Controls may be detached; continue until page update fails explicitly
                 pass
             time.sleep(1)
     

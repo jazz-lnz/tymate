@@ -59,7 +59,7 @@ class SessionManager:
         self,
         user_id: int,
         task_id: int,
-        duration_minutes: int,
+        duration_minutes: int | float,
         notes: Optional[str] = None,
         logged_at: Optional[str] = None,
         task: Optional[Task] = None,
@@ -126,7 +126,7 @@ class SessionManager:
         self,
         user_id: int,
         task_id: int,
-        duration_minutes: int,
+        duration_minutes: int | float,
         notes: Optional[str] = None,
         logged_at: Optional[str] = None,
     ) -> tuple[bool, str, Optional[Session]]:
@@ -151,7 +151,7 @@ class SessionManager:
         )
         return [Session.from_dict(row) for row in rows]
 
-    def get_total_minutes_for_task(self, task_id: int) -> int:
+    def get_total_minutes_for_task(self, task_id: int) -> float:
         """Get total minutes for a task by summing sessions."""
         result = self.db.fetch_one(
             """
@@ -161,7 +161,7 @@ class SessionManager:
             """,
             (task_id,),
         )
-        return int(result["total_minutes"] or 0) if result else 0
+        return float(result["total_minutes"] or 0) if result else 0.0
 
     def get_sessions_for_user_today(self, user_id: int) -> List[Session]:
         """Fetch today's sessions for a user."""
@@ -195,7 +195,7 @@ class SessionManager:
         self,
         session_id: int,
         user_id: int,
-        duration_minutes: int,
+        duration_minutes: int | float,
         notes: Optional[str] = None,
         logged_at: Optional[str] = None,
     ) -> tuple[bool, str, Optional[Session]]:

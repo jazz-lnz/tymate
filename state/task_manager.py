@@ -81,15 +81,15 @@ class TaskManager:
         return rows
 
     @staticmethod
-    def _normalize_minutes(value) -> Optional[int]:
-        """Normalize minute inputs to optional int minutes."""
+    def _normalize_minutes(value) -> Optional[float]:
+        """Normalize minute inputs to optional minute values, preserving fractions."""
         if value is None or value == "":
             return None
 
         try:
-            minutes = int(value)
+            minutes = float(value)
         except (TypeError, ValueError):
-            raise ValueError("Minutes must be an integer")
+            raise ValueError("Minutes must be a number")
 
         if minutes < 0:
             raise ValueError("Minutes cannot be negative")

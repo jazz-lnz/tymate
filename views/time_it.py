@@ -1,7 +1,12 @@
+import base64
+import io
+import math
+import wave
 import flet as ft
 from datetime import datetime, timedelta
 import time
 import threading
+from flet.core.audio import ReleaseMode
 from state.task_manager import TaskManager
 from state.session_manager import SessionManager
 from utils.time_helpers import format_minutes
@@ -55,8 +60,13 @@ def TimeItPage(page: ft.Page, session: dict = None):
     timer_running = False
     timer_paused = False
     elapsed_seconds = int(draft.get("elapsed_seconds", 0) or 0)
+    countdown_total = 0       # remaining seconds available for the selected task
+    countdown_mode = False    # True when the selected task has an estimate
     selected_task_id = None
     timer_thread_active = True
+    timeout_alerted = False
+    session_start_remaining_seconds = 0
+    pending_timer_start_after_estimate = False
     
     # ==================== TIMER MODE ====================
     
@@ -102,25 +112,165 @@ def TimeItPage(page: ft.Page, session: dict = None):
         bgcolor=panel_bg,
     )
 
-    if elapsed_seconds > 0:
-        timer_display.value = f"{elapsed_seconds // 60:02d}:{elapsed_seconds % 60:02d}"
+    def extract_task_id(dropdown_value: str):
+        if dropdown_value and "(ID:" in dropdown_value:
+            try:
+                return int(dropdown_value.split("(ID: ")[1].rstrip(")"))
+            except (ValueError, IndexError):
+                return None
+        return None
+
+    def build_timeout_beep_base64() -> str:
+        sample_rate = 44100
+        duration_seconds = 0.18
+        frequency = 880
+        amplitude = 0.35
+        frame_count = int(sample_rate * duration_seconds)
+        buffer = io.BytesIO()
+        with wave.open(buffer, "wb") as wav_file:
+            wav_file.setnchannels(1)
+            wav_file.setsampwidth(2)
+            wav_file.setframerate(sample_rate)
+            frames = bytearray()
+            for index in range(frame_count):
+                value = int(32767 * amplitude * math.sin(2 * math.pi * frequency * index / sample_rate))
+                frames.extend(value.to_bytes(2, byteorder="little", signed=True))
+            wav_file.writeframes(bytes(frames))
+        return base64.b64encode(buffer.getvalue()).decode("ascii")
+
+    timeout_audio = ft.Audio(
+        src_base64=build_timeout_beep_base64(),
+        autoplay=False,
+        volume=1,
+        release_mode=ReleaseMode.STOP,
+    )
+    page.overlay.append(timeout_audio)
+
+    timeout_snackbar = ft.SnackBar(
+        content=ft.Text("Time is up. Add more time or mark the task complete."),
+        bgcolor=ft.Colors.RED_700,
+        duration=4000,
+    )
+
+    def get_task_remaining_seconds(task_id: int) -> int:
+        task_obj = task_manager.get_task(task_id)
+        if not task_obj or not task_obj.estimated_time:
+            return 0
+        total_estimated_seconds = int(task_obj.estimated_time) * 60
+        logged_seconds = session_manager.get_total_minutes_for_task(task_id) * 60
+        return max(total_estimated_seconds - logged_seconds, 0)
+
+    def format_timer_value(minutes_value: float | int) -> str:
+        total_seconds = max(int(round(float(minutes_value) * 60)), 0)
+        return f"{total_seconds // 60:02d}:{total_seconds % 60:02d}"
+
+    def refresh_timer_display_for_task(task_id: int | None = None):
+        active_task_id = task_id if task_id is not None else extract_task_id(timer_task_dropdown.value)
+        if active_task_id is None:
+            timer_display.value = "00:00"
+            timer_display.color = title_color
+            timer_display.update()
+            return
+
+        refresh_timer_budget(active_task_id)
+        if countdown_mode:
+            timer_display.value = format_timer_value(max(countdown_total - elapsed_seconds, 0) / 60)
+            timer_display.color = "#2D7A4F"
+        else:
+            timer_display.value = "00:00"
+            timer_display.color = title_color
+        timer_display.update()
+
+    def refresh_timer_budget(task_id: int | None = None):
+        nonlocal countdown_total, countdown_mode, session_start_remaining_seconds, timeout_alerted
+        active_task_id = task_id if task_id is not None else extract_task_id(timer_task_dropdown.value)
+        if active_task_id is None:
+            countdown_total = 0
+            countdown_mode = False
+            session_start_remaining_seconds = 0
+            timeout_alerted = False
+            return
+
+        remaining = get_task_remaining_seconds(active_task_id)
+        countdown_total = remaining
+        countdown_mode = remaining > 0
+        if elapsed_seconds == 0:
+            session_start_remaining_seconds = remaining
+        timeout_alerted = False
+
+    def on_timer_task_change(e):
+        """Reconfigure remaining time for the selected task."""
+        nonlocal elapsed_seconds
+        if timer_running:
+            return  # don't change mid-session
+
+        task_id = extract_task_id(timer_task_dropdown.value)
+        refresh_timer_budget(task_id)
+
+        if countdown_mode:
+            display_seconds = max(countdown_total - elapsed_seconds, 0)
+            timer_display.value = format_timer_value(display_seconds / 60)
+            timer_display.color = "#2D7A4F"
+        else:
+            timer_display.value = "00:00"
+            timer_display.color = title_color
+        timer_display.update()
+
+    timer_task_dropdown.on_change = on_timer_task_change
+
+    if elapsed_seconds > 0 and extract_task_id(timer_task_dropdown.value) is not None:
+        refresh_timer_budget(extract_task_id(timer_task_dropdown.value))
+        timer_display.value = format_timer_value(max(countdown_total - elapsed_seconds, 0) / 60)
+        timer_display.color = "#2D7A4F" if countdown_mode else title_color
+    elif extract_task_id(timer_task_dropdown.value) is not None:
+        refresh_timer_budget(extract_task_id(timer_task_dropdown.value))
+        timer_display.value = format_timer_value(countdown_total / 60) if countdown_mode else "00:00"
+        timer_display.color = "#2D7A4F" if countdown_mode else title_color
     
     def update_timer_display():
-        """Update timer display every second"""
-        nonlocal timer_running, timer_paused, elapsed_seconds
-        
+        """Update the countdown every second for the active task."""
+        nonlocal timer_running, timer_paused, elapsed_seconds, timeout_alerted
+
         while timer_thread_active:
             try:
                 if timer_running and not timer_paused:
                     elapsed_seconds += 1
-                    minutes = elapsed_seconds // 60
-                    seconds = elapsed_seconds % 60
-                    timer_display.value = f"{minutes:02d}:{seconds:02d}"
+
+                    remaining = max(countdown_total - elapsed_seconds, 0)
+                    timer_display.value = format_timer_value(remaining / 60)
+                    if remaining == 0:
+                        timer_display.color = ft.Colors.RED_700
+                        if not timeout_alerted:
+                            timeout_alerted = True
+                            timer_running = False
+                            timer_paused = False
+                            try:
+                                timeout_audio.play()
+                            except Exception:
+                                pass
+                            try:
+                                page.snack_bar = timeout_snackbar
+                                timeout_snackbar.open = True
+                                page.update()
+                            except Exception:
+                                pass
+                            try:
+                                show_message("Time is up. Add more time or mark the task complete.", "warning")
+                            except Exception:
+                                pass
+                    elif remaining <= 60:
+                        timer_display.color = ft.Colors.ORANGE_700
+                    elif remaining <= max(countdown_total * 0.25, 60):
+                        timer_display.color = ft.Colors.AMBER_700
+                    else:
+                        timer_display.color = "#2D7A4F"
+
                     timer_display.update()
+
             except (AssertionError, AttributeError):
-                # Control may have been detached from page if user navigated away
                 pass
             time.sleep(1)
+
     
     timer_thread = threading.Thread(target=update_timer_display, daemon=True)
     timer_thread.start()
@@ -145,13 +295,15 @@ def TimeItPage(page: ft.Page, session: dict = None):
         timer_thread_active = False
 
     def discard_current_session():
-        nonlocal timer_running, timer_paused, elapsed_seconds
+        nonlocal timer_running, timer_paused, elapsed_seconds, countdown_mode, countdown_total, timeout_alerted, session_start_remaining_seconds
         timer_running = False
         timer_paused = False
         elapsed_seconds = 0
+        timeout_alerted = False
+        session_start_remaining_seconds = countdown_total
         session.pop("time_it_draft", None)
         try:
-            timer_display.value = "00:00"
+            on_timer_task_change(None)
             sync_timer_controls()
             page.update()
         except (AssertionError, AttributeError):
@@ -162,14 +314,6 @@ def TimeItPage(page: ft.Page, session: dict = None):
     session["time_it_has_active_progress"] = lambda: elapsed_seconds > 0
     session["time_it_cleanup"] = cleanup_time_it
     session["time_it_discard_current_session"] = discard_current_session
-
-    def extract_task_id(dropdown_value: str):
-        if dropdown_value and "(ID:" in dropdown_value:
-            try:
-                return int(dropdown_value.split("(ID: ")[1].rstrip(")"))
-            except (ValueError, IndexError):
-                return None
-        return None
 
     def parse_timestamp(value: str | None):
         if not value:
@@ -280,6 +424,117 @@ def TimeItPage(page: ft.Page, session: dict = None):
             side=ft.BorderSide(1, active_bg if enabled else timer_disabled_border),
         )
 
+    def open_estimate_dialog(is_extension: bool = False, start_after_save: bool = False):
+        nonlocal countdown_total, countdown_mode, session_start_remaining_seconds, timer_running, timer_paused, elapsed_seconds, timeout_alerted, pending_timer_start_after_estimate
+        task_id = extract_task_id(timer_task_dropdown.value)
+        if task_id is None:
+            show_message("Please select a task first", "warning")
+            return
+
+        existing_task = task_manager.get_task(task_id)
+        current_estimate = float(existing_task.estimated_time or 0) if existing_task else 0.0
+        pending_timer_start_after_estimate = start_after_save
+        prompt_title = "Add More Time" if is_extension and current_estimate > 0 else "Set Estimated Time"
+        action_label = "Add Time" if is_extension and current_estimate > 0 else ("Save & Start" if start_after_save else "Save Estimate")
+        estimate_field = ft.TextField(
+            label="Minutes",
+            keyboard_type=ft.KeyboardType.NUMBER,
+            width=220,
+            hint_text="e.g., 30",
+        )
+        info_text = ft.Text(
+            f"Current estimate: {format_minutes(current_estimate)}",
+            size=12,
+            color=accent_color,
+            visible=current_estimate > 0,
+        )
+
+        def save_estimate(_):
+            nonlocal countdown_total, countdown_mode, session_start_remaining_seconds, timer_running, timer_paused, elapsed_seconds, timeout_alerted, pending_timer_start_after_estimate
+            try:
+                add_minutes = int((estimate_field.value or "").strip())
+                if add_minutes <= 0:
+                    raise ValueError
+            except ValueError:
+                show_message("Enter a positive whole number of minutes", "warning")
+                return
+
+            updated_estimate = int(round(current_estimate + add_minutes))
+            ok, msg = task_manager.update_task(task_id, estimated_time=updated_estimate)
+            if not ok:
+                show_message(msg, "error")
+                return
+
+            refresh_timer_budget(task_id)
+            session_start_remaining_seconds = countdown_total
+            timeout_alerted = False
+            dialog.open = False
+            if elapsed_seconds > 0 or pending_timer_start_after_estimate:
+                timer_running = True
+                timer_paused = False
+            pending_timer_start_after_estimate = False
+            refresh_timer_display_for_task(task_id)
+            sync_timer_controls()
+            page.update()
+            show_message("Estimate updated", "success")
+
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text(prompt_title, weight=ft.FontWeight.W_600),
+            content=ft.Column(
+                controls=[
+                    info_text,
+                    estimate_field,
+                    ft.Text(
+                        "This amount will be added to the task's estimate and used as the timer budget.",
+                        size=11,
+                        color=accent_color,
+                    ),
+                ],
+                width=320,
+                tight=True,
+                spacing=8,
+            ),
+            actions=[
+                ft.TextButton("Cancel", on_click=lambda e: setattr(dialog, "open", False) or page.update()),
+                ft.ElevatedButton(action_label, bgcolor=timer_start_color, color=ft.Colors.WHITE, on_click=save_estimate),
+            ],
+        )
+        page.open(dialog)
+        page.update()
+
+    def mark_task_complete_now(e):
+        nonlocal timer_running, timer_paused, elapsed_seconds, timeout_alerted
+        task_id = extract_task_id(timer_task_dropdown.value)
+        if task_id is None:
+            show_message("Please select a task first", "warning")
+            return
+
+        # Keep completion/session semantics aligned with Task Details:
+        # optional duration is passed through TaskManager.mark_complete().
+        duration_minutes = (elapsed_seconds / 60.0) if elapsed_seconds > 0 else None
+
+        ok, msg = task_manager.mark_complete(
+            task_id,
+            duration_minutes=duration_minutes,
+            event_date=datetime.now().isoformat(),
+        )
+        if ok:
+            timer_running = False
+            timer_paused = False
+            elapsed_seconds = 0
+            timeout_alerted = False
+            session.pop("time_it_draft", None)
+            refresh_timer_budget(task_id)
+            timer_display.value = "00:00"
+            timer_display.color = ft.Colors.GREEN_700
+            sync_timer_controls()
+            refresh_session_history()
+            page.update()
+            show_message(msg or "Task marked complete", "success")
+        else:
+            show_message(msg, "error")
+
     def sync_timer_controls():
         start_button.disabled = timer_running or elapsed_seconds > 0
         pause_button.disabled = not timer_running
@@ -291,13 +546,19 @@ def TimeItPage(page: ft.Page, session: dict = None):
         apply_timer_button_style(stop_button, not stop_button.disabled, timer_stop_color)
     
     def start_timer(e):
-        nonlocal timer_running, timer_paused
+        nonlocal timer_running, timer_paused, timeout_alerted, session_start_remaining_seconds
         task_id = extract_task_id(timer_task_dropdown.value)
         if task_id is None:
             show_message("Please select a valid task before starting the timer", "warning")
             return
+        refresh_timer_budget(task_id)
+        if not countdown_mode or countdown_total <= 0:
+            open_estimate_dialog(is_extension=False, start_after_save=True)
+            return
         timer_running = True
         timer_paused = False
+        timeout_alerted = False
+        session_start_remaining_seconds = countdown_total
         sync_timer_controls()
         page.update()
     
@@ -309,9 +570,18 @@ def TimeItPage(page: ft.Page, session: dict = None):
         sync_timer_controls()
         page.update()
 
-    def open_timer_save_dialog(task_id: int, duration_minutes: int):
-        nonlocal timer_running, timer_paused, elapsed_seconds
+    def open_timer_save_dialog(task_id: int, duration_minutes: float):
+        nonlocal timer_running, timer_paused, elapsed_seconds, countdown_total, timeout_alerted
         task_title = next((task.title for task in user_tasks if task.id == task_id), f"Task #{task_id}")
+
+        estimate_minutes = session_start_remaining_seconds / 60.0 if session_start_remaining_seconds > 0 else None
+        summary_lines = [
+            ft.Text(f"Task: {task_title}", size=14, weight=ft.FontWeight.W_600, color=title_color),
+            ft.Text(f"This session: {format_minutes(duration_minutes)}", size=12, color=accent_color),
+        ]
+        if estimate_minutes is not None:
+            summary_lines.append(ft.Text(f"Estimate remaining before start: {format_minutes(estimate_minutes)}", size=12, color=accent_color))
+        summary_lines.append(ft.Text("Save this session, or discard it if this was a misclick.", size=11, color=accent_color))
         notes_field = ft.TextField(
             label="Session Notes (optional)",
             multiline=True,
@@ -334,7 +604,7 @@ def TimeItPage(page: ft.Page, session: dict = None):
             page.update()
 
         def save_timed_session(include_notes: bool):
-            nonlocal timer_running, timer_paused, elapsed_seconds
+            nonlocal timer_running, timer_paused, elapsed_seconds, countdown_mode, countdown_total, timeout_alerted
             notes = (notes_field.value or "").strip() if include_notes else ""
             success, message, logged_session = session_manager.add_session(
                 user_id=user_id,
@@ -350,20 +620,28 @@ def TimeItPage(page: ft.Page, session: dict = None):
             timer_running = False
             timer_paused = False
             elapsed_seconds = 0
+            timeout_alerted = False
             session.pop("time_it_draft", None)
-            timer_display.value = "00:00"
+            refresh_timer_budget(task_id)
+            timer_display.value = format_timer_value(countdown_total / 60) if countdown_mode else "00:00"
+            timer_display.color = "#2D7A4F" if countdown_mode else title_color
             timer_display.update()
             close_dialog(restore_paused_state=False)
             show_message(f"Session logged: {format_minutes(duration_minutes)}", "success")
             refresh_session_history()
+
+        def discard_timed_session(_):
+            dialog.open = False
+            discard_current_session()
+            show_message("Session discarded", "info")
+            page.update()
 
         dialog = ft.AlertDialog(
             modal=True,
             title=ft.Text("Save Timed Session", weight=ft.FontWeight.W_600),
             content=ft.Column(
                 controls=[
-                    ft.Text(task_title, size=14, weight=ft.FontWeight.W_600, color=title_color),
-                    ft.Text(f"Duration: {format_minutes(duration_minutes)}", size=12, color=accent_color),
+                    *summary_lines,
                     ft.Container(height=4),
                     notes_field,
                 ],
@@ -373,6 +651,7 @@ def TimeItPage(page: ft.Page, session: dict = None):
             ),
             actions=[
                 ft.TextButton("Cancel", on_click=lambda e: close_dialog(restore_paused_state=True)),
+                ft.TextButton("Discard Session", on_click=discard_timed_session),
                 ft.TextButton("Skip Notes", on_click=lambda e: save_timed_session(include_notes=False)),
                 ft.ElevatedButton(
                     "Save Session",
@@ -386,7 +665,7 @@ def TimeItPage(page: ft.Page, session: dict = None):
         page.update()
     
     def stop_timer(e):
-        nonlocal timer_running, timer_paused, elapsed_seconds
+        nonlocal timer_running, timer_paused, elapsed_seconds, timeout_alerted
         # Extract task ID from dropdown
         nonlocal selected_task_id
         selected_task_id = extract_task_id(timer_task_dropdown.value)
@@ -403,17 +682,7 @@ def TimeItPage(page: ft.Page, session: dict = None):
             page.update()
             return
         
-        # Convert seconds to minutes (round down)
-        duration_minutes = elapsed_seconds // 60
-        if duration_minutes < 1:
-            show_message("Sessions under 1 minute are not logged.", "warning")
-            elapsed_seconds = 0
-            session.pop("time_it_draft", None)
-            timer_display.value = "00:00"
-            timer_display.update()
-            sync_timer_controls()
-            page.update()
-            return
+        duration_minutes = elapsed_seconds / 60.0
 
         save_timer_draft()
         sync_timer_controls()
@@ -441,15 +710,39 @@ def TimeItPage(page: ft.Page, session: dict = None):
         disabled=True,
     )
     
-    timer_buttons_row = ft.Row(
-        controls=[start_button, pause_button, stop_button],
-        spacing=12,
-        alignment=ft.MainAxisAlignment.CENTER,
+    add_time_button = ft.ElevatedButton(
+        "Set / Add Time",
+        on_click=lambda e: open_estimate_dialog(is_extension=True),
+        width=140,
+        style=ft.ButtonStyle(
+            bgcolor=ft.Colors.BLUE_GREY_700,
+            color=ft.Colors.WHITE,
+        ),
     )
 
-    if elapsed_seconds > 0 and extract_task_id(timer_task_dropdown.value) is not None:
-        timer_running = True
-        timer_paused = True
+    complete_button = ft.ElevatedButton(
+        "Mark Complete",
+        on_click=mark_task_complete_now,
+        width=140,
+        style=ft.ButtonStyle(
+            bgcolor=ft.Colors.GREEN_700,
+            color=ft.Colors.WHITE,
+        ),
+    )
+
+    timer_buttons_row = ft.Row(
+        controls=[start_button, pause_button, stop_button, add_time_button, complete_button],
+        spacing=10,
+        alignment=ft.MainAxisAlignment.CENTER,
+        wrap=True,
+    )
+
+    current_timer_task_id = extract_task_id(timer_task_dropdown.value)
+    if current_timer_task_id is not None:
+        refresh_timer_budget(current_timer_task_id)
+        if elapsed_seconds > 0:
+            timer_running = True
+            timer_paused = True
     sync_timer_controls()
 
     timer_mode_content = ft.Column(
@@ -697,6 +990,7 @@ def TimeItPage(page: ft.Page, session: dict = None):
             ok, message = session_manager.delete_session(session_item.id)
             dialog.open = False
             if ok:
+                refresh_timer_display_for_task(session_item.task_id)
                 refresh_session_history()
                 show_message("Session deleted", "success")
             else:
@@ -927,7 +1221,7 @@ def TimeItPage(page: ft.Page, session: dict = None):
             return
         
         try:
-            duration_minutes = int(minutes_input.value)
+            duration_minutes = float(minutes_input.value)
             if duration_minutes <= 0:
                 show_message("Duration must be a positive number", "warning")
                 return
@@ -1064,7 +1358,8 @@ def TimeItPage(page: ft.Page, session: dict = None):
 
     mode_panel = ft.Container(
         content=tabs,
-        height=450,
+        expand=True,
+        height=620,
         border=ft.border.all(1.5, border_color),
         border_radius=12,
         bgcolor=panel_bg,

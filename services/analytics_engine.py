@@ -461,8 +461,8 @@ class AnalyticsEngine:
                     # Time accuracy
                     time_accuracy = None
                     if row["avg_estimated_minutes"] and row["avg_actual_minutes"]:
-                        est = int(row["avg_estimated_minutes"])
-                        act = int(row["avg_actual_minutes"])
+                        est = float(row["avg_estimated_minutes"])
+                        act = float(row["avg_actual_minutes"])
                         if est > 0:
                             time_accuracy = (act / est) * 100
                     
@@ -471,7 +471,7 @@ class AnalyticsEngine:
                         "total_tasks": total,
                         "completion_rate": round(completion_rate, 1),
                         "on_time_rate": round(on_time_rate, 1),
-                        "avg_minutes": int(row["avg_actual_minutes"] or 0),
+                        "avg_minutes": float(row["avg_actual_minutes"] or 0),
                         "time_accuracy": round(time_accuracy, 1) if time_accuracy else None,
                     })
                 
@@ -510,7 +510,7 @@ class AnalyticsEngine:
                         logged_dt = self._parse_date(session["logged_at"])
                         if logged_dt:
                             hour = logged_dt.hour
-                            hour_productivity[hour]["minutes"] += int(session["duration_minutes"])
+                            hour_productivity[hour]["minutes"] += float(session["duration_minutes"])
                             hour_productivity[hour]["count"] += 1
                     except:
                         continue
@@ -677,7 +677,7 @@ class AnalyticsEngine:
                     "date": date.strftime("%a")[:3],  # Mon, Tue, etc (shortened)
                     "full_date": date_str,
                     "tasks": count["count"] if count else 0,
-                    "minutes": int(minutes["total"] or 0) if minutes else 0,
+                    "minutes": float(minutes["total"] or 0) if minutes else 0,
                 })
             
             return {"daily_data": data}

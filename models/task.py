@@ -119,7 +119,7 @@ class Task:
         self.completed_at = datetime.now().isoformat()
         self.updated_at = datetime.now().isoformat()
 
-    def compute_actual_minutes(self, sessions: list["Session"]) -> int:
+    def compute_actual_minutes(self, sessions: list["Session"]) -> float:
         """Pass in session objects, get total minutes back."""
         return sum(
             session.duration_minutes
@@ -128,7 +128,7 @@ class Task:
         )
 
     @property
-    def actual_time(self) -> Optional[int]:
+    def actual_time(self) -> Optional[float]:
         """Backwards-compatible alias for total minutes."""
         if not self.sessions:
             return None

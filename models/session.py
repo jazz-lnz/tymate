@@ -12,7 +12,7 @@ class Session:
         id: Session ID (auto-generated)
         user_id: Owner user ID
         task_id: Linked Task ID
-        duration_minutes: Length of session in minutes
+        duration_minutes: Length of session in minutes, can include fractional values
         notes: Optional notes for this session
         logged_at: When the session happened
         created_at: When the session was created in system
@@ -22,7 +22,7 @@ class Session:
 
     user_id: int
     task_id: int
-    duration_minutes: int
+    duration_minutes: float
     notes: Optional[str] = None
     id: Optional[int] = None
     logged_at: Optional[str] = None

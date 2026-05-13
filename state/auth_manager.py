@@ -228,6 +228,11 @@ class AuthManager:
                 except Exception:
                     pass
                 sync_service.pull(user.id)
+
+                # Refresh the local user object so the session sees synced profile fields.
+                refreshed_user_data = self.db.get_by_id("users", user.id)
+                if refreshed_user_data:
+                    user = User.from_dict(refreshed_user_data)
         except Exception:
             pass
         

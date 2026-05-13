@@ -5,7 +5,7 @@
 2. [Feature List & Scope](#feature-list--scope)
 3. [Architecture](#architecture)
 4. [Data Model](#data-model)
-5. [Emerging Technology](#emerging-technology)
+5. [Intelligent Analytics](#intelligent-analytics)
 6. [Setup & Run Instructions](#setup--run-instructions)
 7. [Testing Summary](#testing-summary)
 8. [Team Roles & Contributions](#team-roles--contributions)
@@ -26,8 +26,8 @@ Working students and regular students struggle with time management due to compe
 
 1. **Modeling available time like a bank account** — showing remaining hours after accounting for sleep and daily commitments
 2. **Providing real-time awareness** — dynamic status messages adapt to time of day
-3. **Intelligent analytics** — identifying procrastination patterns, time estimation accuracy, and per-category performance
-4. **Smart recommendations** — AI-generated improvement tips based on user behavior
+3. **Intelligent analytics** — identifying procrastination patterns, time estimation accuracy, and per-category performance using rule-based/statistical analysis
+4. **Dynamic timing workflows** — Time It now behaves as a countdown/budget tracker with estimate setup, mark-complete actions, and session recovery
 
 ### Core Concept
 Just like a bank account shows balance, deposits, and withdrawals:
@@ -59,6 +59,7 @@ TYMATE adapts to your **wake time and bedtime**, showing realistic remaining hou
 | Soft Delete (Data Retention) | ✅ Complete | P1 |
 | Task Filtering & Sorting | ✅ Complete | P1 |
 | 30-Day Activity Analytics | ✅ Complete | P1 |
+| Time It Countdown + Session Logging Flow | ✅ Complete | P1 |
 
 ### ❌ Out of Scope (Future Enhancements)
 
@@ -66,11 +67,8 @@ TYMATE adapts to your **wake time and bedtime**, showing realistic remaining hou
 |---------|--------|----------|
 | Database-Level AES-256 Encryption | Student project; bcrypt sufficient | P3 |
 | Collaborative Task Sharing | Not in original requirements | P3 |
-| Mobile App (native iOS/Android) | Web/desktop via Flet covers scope | P3 |
-| Real-time Cloud Sync | Beyond scope; local-first design | P3 |
+| Mobile App (native iOS/Android) | Desktop native; Cross-platform access thru Web app deployment | P3 |
 | Advanced ML Predictions | Would require significant data history | P3 |
-| Offline Mode | Desktop/web covers scope | P3 |
-| Dedicated Log Hours page route + UX polish | Time logging exists via Time It; standalone page is still placeholder-level | P3 |
 
 
 ---
@@ -97,10 +95,17 @@ TYMATE adapts to your **wake time and bedtime**, showing realistic remaining hou
 ┌─────────────────────────────────────────────────────────────┐
 │                  BUSINESS LOGIC LAYER                       │
 ├──────────────────────────────────────────────────────-──────┤
-│         AnalyticsEngine (calculations, AI hints)            │
+│   AnalyticsEngine (rule-based calculations, smart tips)     │
 │          User Model (bcrypt password hashing)               │
 │          Task Model (status, time tracking)                 │
 └───────-─────────────────────────────────────────────────────┘
+                              │
+┌─────────────────────────────────────────────────────────────┐
+│              SYNC / DEPLOYMENT LAYER (OPTIONAL)             │
+├─────────────────────────────────────────────────────────────┤
+│ FastAPI sync server + Azure PostgreSQL/web deployment       │
+│ Used when cross-device sync or hosted access is enabled     │
+└─────────────────────────────────────────────────────────────┘
                               │
 ┌─────────────────────────────────────────────────────────────┐
 │                    DATA STORAGE LAYER                       │
@@ -115,8 +120,10 @@ TYMATE adapts to your **wake time and bedtime**, showing realistic remaining hou
 ### Key Components
 - **Flet**: Cross-platform UI framework (desktop & web)
 - **SQLite**: Local relational database (no server required)
+- **FastAPI Sync Server**: Optional hosted sync/API layer for shared access
 - **bcrypt**: Password hashing module
-- **Analytics Engine**: Built-in recommendation system
+- **Analytics Engine**: Rule-based insights and trend analysis
+- **Time It**: Countdown-based task timing, session logging, discard support, and timeout alerts
 
 ### Project Structure
 ```
@@ -131,7 +138,7 @@ tymate/
 ├── state/                 # State management (Auth, Task, Session, Onboarding)
 ├── storage/               # Database layer (SQLite)
 ├── tests/                 # Test suite
-└── views/                 # UI pages (Dashboard, Tasks, Time It, Analytics, Settings, Admin)
+└── views/                 # UI pages (Dashboard, Tasks, Time It, Analytics, Settings, Admin, Audit Logs, User Activity)
 ```
 
 ---
@@ -182,14 +189,15 @@ AUDIT_LOGS (id, user_id, action, ...)
 ### Key Fields
 - **password_hash**: bcrypt format (never plaintext)
 - **date_due, completed_at**: ISO 8601 timestamps
+- **duration_minutes**: Stored as minutes in task_sessions; app logic now supports sub-minute precision for Time It sessions
 - **is_deleted**: Soft delete (retain data for analytics)
 - **role**: Admin can view all analytics; User can only view own
 
 ---
 
-## Emerging Technology
+## Intelligent Analytics
 
-### AI-Powered Analytics Engine
+### Rule-Based Analytics Engine
 
 **What it does:**
 - Analyzes user task completion patterns over 30 days
@@ -208,6 +216,9 @@ AUDIT_LOGS (id, user_id, action, ...)
 - Heuristic-based rules (not deep learning)
 - Runs locally; no external API calls
 - Analyzes completion timing, category performance, and accuracy
+
+**Accuracy note:**
+- This is not ML-driven AI; it is a deterministic, rule-based analytics layer that produces smart suggestions from historical task/session data.
 
 **Limitations:**
 - Requires historical data (30 days minimum for accurate insights)
@@ -292,7 +303,8 @@ For detailed usage instructions, see [docs/USER_MANUAL.md](docs/USER_MANUAL.md).
    - test_edge_case_fix_validation.py: Regression coverage for onboarding/time edge cases
 
 ✅ Manual Testing
-   - [Manual Test Checklist](docs/manual_test_checklist.md): UI feature verification
+  - [Manual Test Checklist](docs/manual_test_checklist.md): UI feature verification
+  - Time It countdown flow, estimate setup, discard action, and session delete/budget restoration
 ```
 
 ### How to Run Tests
@@ -351,7 +363,7 @@ This project was independently developed as part of academic coursework. All asp
 |-----------|--------|------------|
 | Flet UI Testing | Cannot automate test UI with pytest | Manual testing + comprehensive test data |
 | SQLite Scalability | Single file database | Suitable for <100 users (academic project) |
-| No Real-Time Sync | Local-first design only | Document as future enhancement |
+| Azure Free Tier Availability | Hosted sync/web app may sleep or become unavailable after inactivity | Document as deployment constraint and keep local-first fallback |
 | bcrypt vs AES-256 | No database-level encryption | bcrypt passwords sufficient for scope |
 
 ### Identified Risks
@@ -370,7 +382,6 @@ This project was independently developed as part of academic coursework. All asp
 - ☐ Cloud backup (Google Drive, Dropbox integration)
 - ☐ Real-time notifications (when overdue)
 - ☐ Improve recurring task UX (rule editor + occurrence preview)
-- ☐ Dedicated Log Hours page flow (Time It is currently the primary logging path)
 - ☐ Work Time and Schedule considerations
 - ☐ Collaborative task sharing
 - ☐ Mobile app (iOS/Android native)

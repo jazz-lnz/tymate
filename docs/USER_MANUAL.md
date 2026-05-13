@@ -123,6 +123,7 @@ flet run main.py --web
 5. Complete onboarding:
    - Set sleep hours.
    - Set wake time.
+   - Add class (work) schedule 
    - Review computed daily time budget.
 
 ### If you are using sample data

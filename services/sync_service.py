@@ -318,30 +318,23 @@ def _merge_users(db, users: list, user_id: int):
     Only merges records for the current user (safety).
     """
     for user in users:
-        client_id = user.get("client_id") or user.get("id")
-        if not client_id:
-            continue
-        # Only merge the currently authenticated user's profile
-        try:
-            if int(client_id) != int(user_id):
-                continue
-        except Exception:
+        if not user:
             continue
 
         existing = db.fetch_one(
             "SELECT id, updated_at FROM users WHERE id = ?",
-            (client_id,)
+            (user_id,)
         )
 
         # Strip sensitive fields before applying
         user_data = {k: v for k, v in user.items() if k not in ("id", "client_id", "password_hash")}
-        user_data["id"] = client_id
+        user_data["id"] = user_id
 
         if existing:
             # Only overwrite if server record is newer
             if user.get("updated_at", "") >= existing.get("updated_at", ""):
                 try:
-                    db.update("users", user_data, "id = ?", (client_id,))
+                    db.update("users", user_data, "id = ?", (user_id,))
                 except Exception:
                     pass
         else:
